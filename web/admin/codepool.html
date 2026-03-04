@@ -59,18 +59,14 @@
       const file = document.getElementById('file').files[0];
       const t = document.getElementById('up_msg');
       if (!file) { t.innerHTML = '<span class="err">请选择图片</span>'; return; }
-      let r;
+      t.innerHTML = '正在上传…';
       try {
-        if (file.size > 5 * 1024 * 1024) {
-          r = await fetch('/api/uploads/raw?filename=' + encodeURIComponent(file.name) + '&mime_type=' + encodeURIComponent(file.type||'image/jpeg'), { method:'POST', body: file });
-        } else {
-          const buf = await file.arrayBuffer();
-          const b64 = btoa(String.fromCharCode(...new Uint8Array(buf)));
-          r = await fetch('/api/uploads/base64', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ filename: file.name, content_b64: b64, mime_type: file.type||'image/jpeg' })});
-        }
-      } catch { r = null; }
-      if (r && r.ok) { const d = await r.json(); uploadedUrl = d.url; t.innerHTML = '<span class="ok">已上传：' + d.url + '</span>'; }
-      else { t.innerHTML = '<span class="err">上传失败</span>'; }
+        const buf = await file.arrayBuffer();
+        const b64 = btoa(String.fromCharCode(...new Uint8Array(buf)));
+        const r = await fetch('/api/uploads/base64', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ filename: file.name, content_b64: b64, mime_type: file.type||'image/jpeg' })});
+        if (r && r.ok) { const d = await r.json(); uploadedUrl = d.url; t.innerHTML = '<span class="ok">已上传：' + d.url + '</span>'; }
+        else { t.innerHTML = '<span class="err">上传失败</span>'; }
+      } catch { t.innerHTML = '<span class="err">上传失败</span>'; }
     }
     async function add() {
       const t = document.getElementById('msg');

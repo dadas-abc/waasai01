@@ -390,12 +390,15 @@
       const f = document.getElementById('adm_file').files[0];
       const t = document.getElementById('up_msg_admin');
       if (!uid || !f) { t.textContent='请选择用户并选择文件'; return; }
-      let r;
+      t.textContent = '正在上传…';
+      const toBase64 = (file) => new Promise((resolve, reject) => { const fr = new FileReader(); fr.onload = () => resolve(fr.result.split(',')[1]); fr.onerror = reject; fr.readAsDataURL(file); });
+      let d;
       try {
-        r = await fetch('/api/uploads/raw?filename=' + encodeURIComponent(f.name) + '&mime_type=' + encodeURIComponent(f.type||'application/octet-stream'), { method:'POST', body: f });
-      } catch { r = null; }
-      if (!r || !r.ok) { t.textContent = '上传失败'; return; }
-      const d = await r.json();
+        const b64 = await toBase64(f);
+        const resp = await fetch('/api/uploads/base64', { method:'POST', headers:{ 'Content-Type':'application/json' }, body: JSON.stringify({ filename: f.name, content_b64: b64, mime_type: f.type||'application/octet-stream' }) });
+        if (!resp.ok) { t.textContent = '上传失败'; return; }
+        d = await resp.json();
+      } catch { t.textContent = '上传失败'; return; }
       const ct = (d.content_type||'').toLowerCase();
       let kind = 'file';
       if (ct.startsWith('image/')) kind = 'image';
@@ -547,12 +550,14 @@
       const f = document.getElementById('bc_file').files[0];
       if (!all && ids.length === 0) { t.textContent='请勾选全部或填写用户ID'; return; }
       if (!f) { t.textContent='请选择文件'; return; }
-      let r;
+      let d;
       try {
-        r = await fetch('/api/uploads/raw?filename=' + encodeURIComponent(f.name) + '&mime_type=' + encodeURIComponent(f.type||'application/octet-stream'), { method:'POST', body: f });
-      } catch { r = null; }
-      if (!r || !r.ok) { t.textContent='上传失败'; return; }
-      const d = await r.json();
+        const fr = new FileReader();
+        const b64 = await new Promise((resolve, reject)=>{ fr.onload=()=>resolve(fr.result.split(',')[1]); fr.onerror=reject; fr.readAsDataURL(f); });
+        const resp = await fetch('/api/uploads/base64', { method:'POST', headers:{ 'Content-Type':'application/json' }, body: JSON.stringify({ filename: f.name, content_b64: b64, mime_type: f.type||'application/octet-stream' })});
+        if (!resp.ok) { t.textContent='上传失败'; return; }
+        d = await resp.json();
+      } catch { t.textContent='上传失败'; return; }
       let kind = 'file';
       const ct = (d.content_type||'').toLowerCase();
       if (ct.startsWith('image/')) kind = 'image';

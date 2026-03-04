@@ -17,7 +17,7 @@
 </head>
 <body>
   <h1>哇噻APP</h1>
-  <div class="box">
+  <div class="box" id="reg_box">
     <h2>注册</h2>
     <input id="reg_pw" placeholder="密码（自设）" value="Abc12345"/>
     <input id="reg_q1" placeholder="保密问题1" value="你的城市？"/>
@@ -27,14 +27,14 @@
     <button onclick="doRegister()">注册并自动生成ID</button>
     <div id="reg_msg"></div>
   </div>
-  <div class="box">
+  <div class="box" id="login_box">
     <h2>登录</h2>
     <input id="login_id" placeholder="UUID 用户ID"/>
     <input id="login_pw" placeholder="密码" value="Abc12345"/>
     <button onclick="doLogin()">登录</button>
     <div id="login_msg"></div>
   </div>
-  <div class="box">
+  <div class="box" id="projects_box">
     <h2>项目列表</h2>
     <div id="list" class="grid"></div>
     <div id="msg"></div>
@@ -74,6 +74,15 @@
         t.innerHTML = '<span class="err">登录失败</span>';
       }
     }
+    function updateAuthUI() {
+      const has = !!localStorage.getItem('token');
+      document.getElementById('reg_box').style.display = has ? 'none' : 'block';
+      document.getElementById('login_box').style.display = has ? 'none' : 'block';
+    }
+    function logout() {
+      localStorage.removeItem('token');
+      updateAuthUI();
+    }
     async function loadProjects() {
       const r = await fetch('/api/projects');
       const list = document.getElementById('list'); list.innerHTML = '';
@@ -86,6 +95,7 @@
         card.appendChild(btn); list.appendChild(card);
       }
     }
+    updateAuthUI();
     loadProjects();
   </script>
   <script>
@@ -93,6 +103,9 @@
       navigator.serviceWorker.register('/web/sw.js').catch(()=>{});
     }
   </script>
+  <div style="position:fixed; right:16px; bottom:16px;">
+    <button onclick="logout()">退出登录</button>
+  </div>
   <script src="/web/support.js"></script>
   <script>addSupportEntry();</script>
 </body>

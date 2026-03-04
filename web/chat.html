@@ -112,12 +112,16 @@
       const token = localStorage.getItem('token'); const f = document.getElementById('pay_file').files[0];
       const u = document.getElementById('up_msg');
       if (!f) { u.textContent = '请先选择图片'; return; }
-      let r;
+      u.textContent = '正在上传…';
+      const toBase64 = (file) => new Promise((resolve, reject) => { const fr = new FileReader(); fr.onload = () => resolve(fr.result.split(',')[1]); fr.onerror = reject; fr.readAsDataURL(file); });
+      let d;
       try {
-        r = await fetch('/api/uploads/raw?filename=' + encodeURIComponent(f.name) + '&mime_type=' + encodeURIComponent(f.type||'image/jpeg'), { method:'POST', body: f });
-      } catch { r = null; }
-      if (!r || !r.ok) { u.textContent = '上传失败'; return; }
-      const d = await r.json(); u.textContent = '已上传：' + d.url;
+        const b64 = await toBase64(f);
+        const resp = await fetch('/api/uploads/base64', { method:'POST', headers:{ 'Content-Type':'application/json' }, body: JSON.stringify({ filename: f.name, content_b64: b64, mime_type: f.type||'image/jpeg' }) });
+        if (!resp.ok) { u.textContent = '上传失败'; return; }
+        d = await resp.json();
+      } catch { u.textContent = '上传失败'; return; }
+      u.textContent = '已上传：' + d.url;
       const msg = '订单 ' + (q('oid')||'') + ' 付款截图';
       const s1 = await fetch('/api/chat/send?kind=text&content=' + encodeURIComponent(msg), { method:'POST', headers:{ Authorization:'Bearer '+token }});
       const s2 = await fetch('/api/chat/send?kind=image&content=' + encodeURIComponent(d.url), { method:'POST', headers:{ Authorization:'Bearer '+token }});

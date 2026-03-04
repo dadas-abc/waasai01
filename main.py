@@ -391,6 +391,50 @@ async def upload_raw(request: Request, filename: str = "upload.bin", mime_type: 
     elif ct.startswith("video/"):
         kind = "video"
     return {"url": url, "content_type": ct, "kind": kind}
+@app.post("/api/uploads")
+async def upload_unified(request: Request):
+    ctype = request.headers.get("content-type", "") or ""
+    updir = os.path.join(os.path.dirname(__file__), "web", "uploads")
+    os.makedirs(updir, exist_ok=True)
+    if "application/json" in ctype:
+        data = await request.json()
+        filename = (data.get("filename") or "upload.bin")
+        mime_type = (data.get("mime_type") or "application/octet-stream")
+        ext = ""
+        if "." in filename:
+            ext = "." + filename.split(".")[-1].lower()
+        name = uuid.uuid4().hex + ext
+        full = os.path.join(updir, name)
+        raw = base64.b64decode((data.get("content_b64") or "").encode())
+        with open(full, "wb") as f:
+            f.write(raw)
+        url = f"/web/uploads/{name}"
+        ct = (mime_type or "").lower()
+        kind = "file"
+        if ct.startswith("image/"):
+            kind = "image"
+        elif ct.startswith("video/"):
+            kind = "video"
+        return {"url": url, "content_type": ct, "kind": kind}
+    body = await request.body()
+    params = request.query_params
+    filename = params.get("filename") or "upload.bin"
+    mime_type = params.get("mime_type") or "application/octet-stream"
+    ext = ""
+    if "." in filename:
+        ext = "." + filename.split(".")[-1].lower()
+    name = uuid.uuid4().hex + ext
+    full = os.path.join(updir, name)
+    with open(full, "wb") as f:
+        f.write(body or b"")
+    url = f"/web/uploads/{name}"
+    ct = (mime_type or "").lower()
+    kind = "file"
+    if ct.startswith("image/"):
+        kind = "image"
+    elif ct.startswith("video/"):
+        kind = "video"
+    return {"url": url, "content_type": ct, "kind": kind}
 @app.get("/api/pay/codepool_for_order")
 def codepool_for_order(oid: int, channel: Optional[str] = None):
     db = SessionLocal()

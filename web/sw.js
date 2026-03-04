@@ -21,15 +21,23 @@ self.addEventListener('fetch', (event) => {
   if (req.method !== 'GET') return;
   event.respondWith(
     caches.match(req).then(cached => {
+      const url = new URL(req.url);
+      const accept = req.headers.get('Accept') || '';
+      const isHTML = accept.includes('text/html');
+      const isAPI = url.pathname.startsWith('/api/');
+      const shouldCache = !isHTML && !isAPI;
       const fetchPromise = fetch(req).then(resp => {
         try {
           const copy = resp.clone();
-          if (copy.ok && copy.type === 'basic') {
+          if (shouldCache && copy.ok && copy.type === 'basic') {
             caches.open(CACHE_NAME).then(cache => cache.put(req, copy));
           }
         } catch {}
         return resp;
       }).catch(() => cached);
+      if (isHTML || isAPI) {
+        return fetchPromise;
+      }
       return cached || fetchPromise;
     })
   );

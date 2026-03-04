@@ -1,0 +1,596 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8"/>
+  <title>客服控制台</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <style>
+    body { font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif; margin: 24px; max-width: 760px; }
+    .box { border: 1px solid #ddd; border-radius: 8px; padding: 16px; }
+    .msg { border-bottom: 1px solid #eee; padding: 6px 0; }
+    input, button { padding: 8px; margin: 6px 0; }
+    .ok { color: #0a0; } .err { color: #a00; } a { color: #1677ff; }
+  </style>
+</head>
+<body>
+  <h1>客服控制台</h1>
+  <div class="box" style="display:grid; grid-template-columns: 280px 1fr; gap:16px;">
+    <div>
+      <div style="margin-bottom:8px;">
+        <input id="adm_token" placeholder="管理员令牌（默认：admin-demo-token）" style="width:100%;"/>
+        <button onclick="saveAdm()">保存令牌并刷新</button>
+        <div id="adm_msg" class="hint"></div>
+        <label style="display:block; margin-top:6px;"><input id="auto_refresh" type="checkbox" checked/> 自动刷新（每3秒）</label>
+      </div>
+      <div style="font-weight:600; margin-bottom:8px;">用户列表 <input id="user_search" placeholder="搜索用户ID" style="margin-left:8px; width:160px;"/></div>
+      <div id="users" style="max-height:260px; overflow:auto;"></div>
+      <div style="font-weight:600; margin:12px 0 8px;">全部用户 <input id="all_users_search" placeholder="搜索用户ID" style="margin-left:8px; width:160px;"/></div>
+      <div id="all_users"></div>
+    </div>
+    <div>
+      <div id="current" style="font-weight:600; margin-bottom:8px;">未选择用户</div>
+      <div id="unread_admin" style="display:none; background:#fff3cd; color:#8a6d3b; padding:6px; border:1px solid #ffeeba; border-radius:4px; margin-bottom:8px;">未读 0 条用户消息</div>
+      <div id="banned_banner" style="display:none; background:#fdecea; color:#d93025; padding:6px; border:1px solid #f5c2c7; border-radius:4px; margin-bottom:8px;">当前用户已被禁止，无法创建订单或发送消息</div>
+      <div id="list" style="max-height:420px; overflow:auto; border:1px solid #eee; padding:8px;"></div>
+      <div style="margin:8px 0;">
+        <button onclick="banCurrent()">禁止当前用户</button>
+        <button onclick="unbanCurrent()">解除禁止</button>
+      </div>
+      <input id="text" placeholder="回复消息"/>
+      <button onclick="send()">发送</button>
+      <div style="margin-top:8px;">
+        <input id="adm_file" type="file"/>
+        <button onclick="sendFile()">上传并发送附件</button>
+        <div id="up_msg_admin"></div>
+      </div>
+      <div id="msg"></div>
+      <div style="margin-top:12px; border-top:1px solid #eee; padding-top:8px;">
+        <div style="font-weight:600; margin-bottom:6px;">财务确认后标记已支付</div>
+        <div id="order_meta" style="color:#666; font-size:12px;">订单：—</div>
+        <input id="proof" placeholder="凭证图片URL（可自动识别聊天中最近的图片）"/>
+        <button onclick="markPaid()">标记为已支付</button>
+        <button onclick="notifyPaid()" style="margin-left:8px;">通知用户流程开始</button>
+        <div id="paid_msg"></div>
+        <div style="margin-top:8px;">
+          <input id="deliver_note" placeholder="交付备注（可选）"/>
+          <button onclick="markDelivered()">标记已交付</button>
+          <button onclick="notifyDelivered()" style="margin-left:8px;">通知用户订单完成</button>
+          <div id="delivered_msg"></div>
+        </div>
+        <div style="margin-top:12px; border-top:1px solid #eee; padding-top:8px;">
+          <div style="font-weight:600; margin-bottom:6px;">群发</div>
+          <label><input type="checkbox" id="bc_all"/> 群发给全部用户</label>
+          <div style="margin-top:6px;">指定用户（逗号或换行分隔）</div>
+          <textarea id="bc_ids" placeholder="用户ID列表" style="width:100%; height:80px;"></textarea>
+          <div style="margin-top:6px;">群发文本</div>
+          <input id="bc_text" placeholder="群发文本内容"/>
+          <button onclick="broadcastText()">发送文本群发</button>
+          <div style="margin-top:6px;">群发附件</div>
+          <input id="bc_file" type="file"/>
+          <button onclick="broadcastFile()">上传并群发附件</button>
+          <div id="bc_msg"></div>
+        </div>
+        <div class="box" style="margin-top:12px;">
+          <div style="font-weight:600; margin-bottom:6px;">关键词自动回复（精准匹配）</div>
+          <div>关键词</div>
+          <input id="ar_kw" placeholder="例如：你好"/>
+          <div>回复内容</div>
+          <input id="ar_reply" placeholder="例如：您好，请问有什么可以帮您？"/>
+          <button onclick="addAutoReply()">添加/更新规则</button>
+          <div style="margin-top:8px;">
+            <button onclick="loadAutoReplies()">刷新规则列表</button>
+          </div>
+          <table id="ar_tbl" style="width:100%; border-collapse:collapse; margin-top:8px;">
+            <thead><tr><th style="border:1px solid #eee; padding:6px;">关键词</th><th style="border:1px solid #eee; padding:6px;">回复</th><th style="border:1px solid #eee; padding:6px;">启用</th><th style="border:1px solid #eee; padding:6px;">操作</th></tr></thead>
+            <tbody></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div class="box"><a href="/web/admin/index.html">返回后台首页</a></div>
+  <script src="/web/utils.js"></script>
+  <script>
+    function q(k) { const u = new URL(location.href); return u.searchParams.get(k); }
+    function adm() { return localStorage.getItem('adm_token') || 'admin-demo-token'; }
+    function saveAdm() {
+      const v = document.getElementById('adm_token').value.trim();
+      localStorage.setItem('adm_token', v || 'admin-demo-token');
+      document.getElementById('adm_msg').textContent = '令牌已保存';
+      loadUsers();
+    }
+    document.getElementById('adm_token').value = adm();
+    let currentUid = null;
+    let currentOrderId = null;
+    let currentOrderStatus = null;
+    let currentOrderNo = null;
+    let latestImageUrl = null;
+    let lastTsMap = {};
+    try { lastTsMap = JSON.parse(localStorage.getItem('adm_last_seen')||'{}'); } catch {}
+    function saveLastSeen(uid, ts) {
+      lastTsMap[uid] = ts;
+      localStorage.setItem('adm_last_seen', JSON.stringify(lastTsMap));
+    }
+    let userNodes = {};
+    function beep() {
+      try {
+        const ctx = new (window.AudioContext || window.webkitAudioContext)();
+        const playTone = (freq, dur, vol) => {
+          const o = ctx.createOscillator(), g = ctx.createGain();
+          o.type = 'triangle'; o.frequency.value = freq; g.gain.value = vol;
+          o.connect(g); g.connect(ctx.destination); o.start();
+          setTimeout(()=>{ o.stop(); }, dur);
+        };
+        playTone(784, 120, 0.04);
+        setTimeout(()=>{ playTone(1046, 160, 0.04); }, 140);
+        setTimeout(()=>{ ctx.close(); }, 350);
+      } catch {}
+    }
+    let prevCountsMap = {};
+    let countsInitialized = false;
+    let countsMapGlobal = {};
+    async function loadUsers() {
+      const wrap = document.getElementById('users');
+      try {
+        const r = await fetch('/api/admin/chat/users?limit=50', { headers:{ Authorization: adm() }});
+        if (!r.ok) {
+          wrap.innerHTML = '<span class="err">加载用户失败（' + r.status + '），尝试兜底列表</span>';
+          // fallback: use all users to populate left list too
+          const ru = await fetch('/api/admin/users/list', { headers:{ Authorization: adm() }});
+          if (ru.ok) {
+            const users = await ru.json();
+            for (const u of users) {
+              const div = document.createElement('div'); div.style.borderBottom='1px solid #eee'; div.style.padding='6px 0';
+              const link = document.createElement('a'); link.href='#'; link.textContent = u.id;
+              link.onclick = (e)=>{ e.preventDefault(); selectUser(u.id); };
+              div.appendChild(link); wrap.appendChild(div);
+            }
+            if (!currentUid && users.length > 0) {
+              selectUser(users[0].id);
+            }
+          }
+          // continue to build all_users area below
+        } else {
+        let arr = await r.json();
+        const kwUser = (document.getElementById('user_search')?.value||'').trim().toLowerCase();
+        if (kwUser) {
+          arr = arr.filter(x => String(x.user_id||'').toLowerCase().includes(kwUser));
+          if (arr.length === 0) {
+            try {
+              const ru = await fetch('/api/admin/users/list?limit=200', { headers:{ Authorization: adm() }});
+              if (ru.ok) {
+                const users = await ru.json();
+                const matches = (users||[]).filter(u => String(u.id||'').toLowerCase().includes(kwUser));
+                arr = matches.map(u => ({ user_id: u.id, last_text: '', last_ts: '' }));
+              }
+            } catch {}
+          }
+        }
+        let countsMap = {};
+        try {
+          const body = { last_seen: Object.fromEntries(arr.map(x => [x.user_id, lastTsMap[x.user_id]||""])) };
+          const cr = await fetch('/api/admin/chat/unread_counts', { method:'POST', headers:{ 'Content-Type':'application/json', Authorization: adm() }, body: JSON.stringify(body) });
+          if (cr.ok) {
+            const cc = await cr.json();
+            for (const it of cc) countsMap[it.user_id] = it.count || 0;
+          }
+        } catch {}
+        arr = arr.sort((a,b) => (b.last_ts || '').localeCompare(a.last_ts || ''));
+        let totalUnread = 0;
+        let increased = false;
+        for (const it of arr) {
+          let node = userNodes[it.user_id];
+          const c = countsMap[it.user_id] || 0;
+          if (!node) {
+            const div = document.createElement('div'); div.style.borderBottom='1px solid #eee'; div.style.padding='6px 0'; div.style.cursor='pointer'; div.dataset.uid = it.user_id;
+            const link = document.createElement('a'); link.href='#'; link.textContent = it.user_id;
+            const meta = document.createElement('div'); meta.style.color='#666'; meta.style.fontSize='12px';
+            const open = document.createElement('a'); open.style.marginLeft='8px'; open.target='_blank';
+            div.appendChild(link); div.appendChild(meta); div.appendChild(open);
+            wrap.appendChild(div);
+            userNodes[it.user_id] = node = {div, link, meta, open};
+          }
+          node.link.textContent = it.user_id;
+          node.link.onclick = (e)=>{ e.preventDefault(); selectUser(it.user_id); };
+          node.div.onclick = (e)=>{ if (e.target === node.open || e.target === node.link) return; selectUser(it.user_id); };
+          node.open.href = it.order_id ? ('/web/order_status.html?oid=' + it.order_id) : '#';
+          node.open.textContent = it.order_id ? '打开订单状态' : '';
+          const order = it.order_id ? (' · 订单：' + it.order_no + '（' + (it.order_status || '—') + '）') : '';
+          node.meta.textContent = (it.last_text || '') + order;
+          if (c > 0) {
+            const dot = document.createElement('span'); dot.textContent=' 未读(' + c + ')'; dot.style.color='#e53935'; dot.style.marginLeft='6px';
+            node.meta.appendChild(dot);
+            totalUnread += c;
+          }
+          if (countsInitialized && c > (prevCountsMap[it.user_id] || 0)) increased = true;
+        }
+        if (countsInitialized && increased) beep();
+        prevCountsMap = countsMap;
+        countsMapGlobal = countsMap;
+        countsInitialized = true;
+        }
+        updateAdminUnreadBanner();
+      } catch (e) {
+        wrap.innerHTML = '<span class="err">加载用户失败</span>';
+      }
+      // 加载全部用户（兜底列表，虚拟化按需追加）
+      const wrapAll = document.getElementById('all_users'); const stAll = wrapAll.scrollTop; wrapAll.innerHTML = '';
+      try {
+        const ru = await fetch('/api/admin/users/list', { headers:{ Authorization: adm() }});
+        if (ru.ok) {
+          const users = await ru.json();
+          const kw = (document.getElementById('all_users_search')?.value||'').trim().toLowerCase();
+          const list = (users||[]).filter(u => !kw || (String(u.id||'').toLowerCase().includes(kw)));
+          let idx = 0; const page = 50;
+          function appendChunk() {
+            const end = Math.min(idx + page, list.length);
+            for (let i = idx; i < end; i++) {
+              const u = list[i];
+              const div = document.createElement('div'); div.style.borderBottom='1px solid #eee'; div.style.padding='6px 0';
+              const link = document.createElement('a'); link.href='#'; link.textContent = u.id;
+              link.onclick = (e)=>{ e.preventDefault(); selectUser(u.id); };
+              div.appendChild(link); wrapAll.appendChild(div);
+            }
+            idx = end;
+          }
+          appendChunk();
+          wrapAll.onscroll = ()=> {
+            if (wrapAll.scrollTop + wrapAll.clientHeight >= wrapAll.scrollHeight - 20) {
+              appendChunk();
+            }
+          };
+          if (!currentUid && list.length > 0) selectUser(list[0].id);
+        } else {
+          wrapAll.innerHTML = '<span class="err">加载全部用户失败</span>';
+        }
+      } catch (e) {
+        wrapAll.innerHTML = '<span class="err">加载全部用户失败</span>';
+      }
+      wrapAll.scrollTop = stAll;
+      try {
+        const r = await fetch('/api/admin/chat/users?limit=50', { headers:{ Authorization: adm() }});
+        if (r.ok) {
+          const arr = await r.json();
+          const counts = {};
+          for (const it of arr) counts[it.user_id] = 0;
+          try {
+            const body = { last_seen: Object.fromEntries(arr.map(x => [x.user_id, lastTsMap[x.user_id]||""])) };
+            const cr = await fetch('/api/admin/chat/unread_counts', { method:'POST', headers:{ 'Content-Type':'application/json', Authorization: adm() }, body: JSON.stringify(body) });
+            if (cr.ok) {
+              const cc = await cr.json();
+              for (const it of cc) counts[it.user_id] = it.count || 0;
+            }
+          } catch {}
+          if (currentUid && counts[currentUid] > 0) {
+            await loadMessages();
+          }
+        }
+      } catch {}
+    }
+    function updateAdminUnreadBanner() {
+      const b = document.getElementById('unread_admin');
+      if (!b) return;
+      const c = countsMapGlobal[currentUid] || 0;
+      if (c > 0) { b.textContent = '未读 ' + c + ' 条用户消息'; b.style.display = 'block'; }
+      else { b.style.display = 'none'; }
+    }
+    // 绑定用户搜索框输入事件
+    (function bindUserSearch(){
+      const s = document.getElementById('user_search');
+      if (s) s.oninput = async ()=>{ await loadUsers(); };
+    })();
+    // 搜索输入变更时刷新全部用户列表
+    (function bindSearch(){
+      const s = document.getElementById('all_users_search');
+      if (s) s.oninput = async ()=>{ await loadUsers(); };
+    })();
+    async function selectUser(uid) {
+      currentUid = uid;
+      document.getElementById('current').textContent = '当前用户：' + uid;
+      // 首次进入会话显示完整历史
+      adminLastTs = "";
+      const box = document.getElementById('list'); box.innerHTML=''; box.dataset.uid = uid;
+      await loadMessages();
+      updateAdminUnreadBanner();
+      await updateBannedBanner();
+    }
+    async function loadMessages() {
+      const box = document.getElementById('list'); const stBox = box.scrollTop; const nearBottom = (box.scrollHeight - box.scrollTop - box.clientHeight) < 40;
+      if (!currentUid) { box.innerHTML = '<span class="err">未选择用户</span>'; return; }
+      // 增量追加（首次进入已清空并显示全部历史）
+      try {
+        const r = await fetch('/api/admin/chat/messages?user_id=' + encodeURIComponent(currentUid), { headers:{ Authorization: adm() }});
+        if (!r.ok) { box.innerHTML = '<span class="err">加载失败</span>'; return; }
+        const arr = await r.json();
+        latestImageUrl = null;
+        const prevTs = adminLastTs;
+        const news = arr.filter(m => !adminLastTs || (m.ts > adminLastTs));
+        let newFromUser = 0;
+        for (const it of news) {
+          const d = document.createElement('div'); d.className = 'msg';
+          if (it.kind === 'image') {
+            const ts = document.createElement('div'); ts.style.color='#666'; ts.style.fontSize='12px';
+            const disp = formatCST(it.ts);
+            const sender = (it.sender==='user'?'用户':(it.sender==='agent'?'客服':it.sender));
+            ts.textContent = disp + ' ' + sender + '：图片';
+            const img = document.createElement('img'); img.src = it.content; img.style.maxWidth='360px'; img.style.border='1px solid #eee'; img.style.marginTop='6px'; img.style.cursor='zoom-in'; img.onclick = ()=>showPreview(it.content);
+            const link = document.createElement('a'); link.href = it.content; link.textContent = '保存图片'; link.download = it.content.split('/').pop(); link.style.marginLeft='8px';
+            d.appendChild(ts); d.appendChild(img); d.appendChild(link);
+            latestImageUrl = it.content;
+          } else if (it.kind === 'video') {
+            const ts = document.createElement('div'); ts.style.color='#666'; ts.style.fontSize='12px';
+            const disp = formatCST(it.ts);
+            const sender = (it.sender==='user'?'用户':(it.sender==='agent'?'客服':it.sender));
+            ts.textContent = disp + ' ' + sender + '：视频';
+            const video = document.createElement('video'); video.src = it.content; video.controls = true; video.style.maxWidth='360px'; video.style.marginTop='6px';
+            const link = document.createElement('a'); link.href = it.content; link.textContent = '下载视频'; link.download = it.content.split('/').pop(); link.style.marginLeft='8px';
+            d.appendChild(ts); d.appendChild(video); d.appendChild(link);
+          } else if (it.kind === 'file') {
+            const ts = document.createElement('div'); ts.style.color='#666'; ts.style.fontSize='12px';
+            const disp = formatCST(it.ts);
+            const sender = (it.sender==='user'?'用户':(it.sender==='agent'?'客服':it.sender));
+            ts.textContent = disp + ' ' + sender + '：文件';
+            const link = document.createElement('a'); link.href = it.content; link.textContent = '下载文件'; link.download = it.content.split('/').pop(); link.style.marginLeft='8px';
+            d.appendChild(ts); d.appendChild(link);
+          } else {
+            const disp = formatCST(it.ts);
+            const sender = (it.sender==='user'?'用户':(it.sender==='agent'?'客服':it.sender));
+            d.textContent = disp + ' ' + sender + '：' + it.content;
+          }
+          box.appendChild(d);
+          if (it.sender === 'user') newFromUser++;
+        }
+        if (prevTs && newFromUser > 0) beep();
+        if (arr.length > 0) { adminLastTs = arr[arr.length-1].ts; saveLastSeen(currentUid, adminLastTs); }
+      } catch (e) {
+        box.innerHTML = '<span class="err">加载失败</span>';
+      }
+      box.scrollTop = nearBottom ? box.scrollHeight : stBox;
+      const info = await findLatestOrderForUser(currentUid);
+      currentOrderId = info.order_id; currentOrderStatus = info.order_status; currentOrderNo = info.order_no;
+      document.getElementById('order_meta').textContent = '订单：' + (info.order_no || '—') + '（' + (info.order_status || '—') + '）';
+      const proof = document.getElementById('proof');
+      if (latestImageUrl && currentOrderStatus === '待支付') proof.value = latestImageUrl;
+    }
+    async function updateBannedBanner() {
+      const b = document.getElementById('banned_banner');
+      if (!currentUid) { b.style.display='none'; return; }
+      try {
+        const r = await fetch('/api/admin/users/banned', { headers:{ Authorization: adm() }});
+        if (!r.ok) { b.style.display='none'; return; }
+        const arr = await r.json();
+        const isBanned = (arr||[]).some(x => x.user_id === currentUid);
+        b.style.display = isBanned ? 'block' : 'none';
+      } catch { b.style.display='none'; }
+    }
+    async function send() {
+      const uid = currentUid;
+      const txt = document.getElementById('text').value.trim();
+      const t = document.getElementById('msg');
+      if (!uid || !txt) { t.textContent='请选择用户并填写消息'; return; }
+      const r = await fetch('/api/admin/chat/send', { method:'POST', headers:{ 'Content-Type':'application/json', Authorization: adm() }, body: JSON.stringify({ user_id: uid, text: txt })});
+      t.textContent = r.ok ? '已发送' : '发送失败';
+      document.getElementById('text').value = '';
+      await loadMessages();
+    }
+    // 回车快捷发送
+    (function bindEnterSend(){
+      const input = document.getElementById('text');
+      if (input) {
+        input.addEventListener('keydown', (e) => {
+          if (e.key === 'Enter' && !e.shiftKey) {
+            e.preventDefault();
+            send();
+          }
+        });
+      }
+    })();
+    async function sendFile() {
+      const uid = currentUid;
+      const f = document.getElementById('adm_file').files[0];
+      const t = document.getElementById('up_msg_admin');
+      if (!uid || !f) { t.textContent='请选择用户并选择文件'; return; }
+      let r;
+      try {
+        r = await fetch('/api/uploads/raw?filename=' + encodeURIComponent(f.name) + '&mime_type=' + encodeURIComponent(f.type||'application/octet-stream'), { method:'POST', body: f });
+      } catch { r = null; }
+      if (!r || !r.ok) { t.textContent = '上传失败'; return; }
+      const d = await r.json();
+      const ct = (d.content_type||'').toLowerCase();
+      let kind = 'file';
+      if (ct.startsWith('image/')) kind = 'image';
+      else if (ct.startsWith('video/')) kind = 'video';
+      else {
+        const name = (d.url||'').split('/').pop() || '';
+        const ext = name.split('.').pop().toLowerCase();
+        if (['png','jpg','jpeg','gif','webp','bmp'].includes(ext)) kind = 'image';
+        else if (['mp4','webm','mov','mkv','avi'].includes(ext)) kind = 'video';
+      }
+      const payload = { user_id: uid, kind: kind, content: d.url };
+      const s = await fetch('/api/admin/chat/send', { method:'POST', headers:{ 'Content-Type':'application/json', Authorization: adm() }, body: JSON.stringify(payload) });
+      t.textContent = s.ok ? '已发送附件' : '发送失败';
+      document.getElementById('adm_file').value = '';
+      await loadMessages();
+    }
+    async function banCurrent() {
+      if (!currentUid) { alert('请先选择用户'); return; }
+      const r = await fetch('/api/admin/users/ban', { method:'POST', headers:{ 'Content-Type':'application/json', Authorization: adm() }, body: JSON.stringify({ user_id: currentUid })});
+      alert(r.ok ? ('已禁止用户 ' + currentUid) : '禁止失败');
+      await updateBannedBanner();
+    }
+    async function unbanCurrent() {
+      if (!currentUid) { alert('请先选择用户'); return; }
+      const r = await fetch('/api/admin/users/unban', { method:'POST', headers:{ 'Content-Type':'application/json', Authorization: adm() }, body: JSON.stringify({ user_id: currentUid })});
+      alert(r.ok ? ('已解除禁止 ' + currentUid) : '解除失败');
+      await updateBannedBanner();
+    }
+    async function loadAutoReplies() {
+      try {
+        const r = await fetch('/api/admin/autoreply/list', { headers:{ Authorization: adm() }});
+        const tb = document.querySelector('#ar_tbl tbody'); tb.innerHTML='';
+        if (!r.ok) { tb.innerHTML = '<tr><td colspan="4">加载失败</td></tr>'; return; }
+        const arr = await r.json();
+        for (const it of arr) {
+          const tr = document.createElement('tr');
+          tr.innerHTML = '<td style="border:1px solid #eee; padding:6px;">'+ it.keyword +'</td><td style="border:1px solid #eee; padding:6px;">'+ it.reply_text +'</td><td style="border:1px solid #eee; padding:6px;">'+ (it.enabled? '是':'否') +'</td><td style="border:1px solid #eee; padding:6px;"></td>';
+          const del = document.createElement('button'); del.textContent='删除';
+          del.onclick = async ()=> {
+            const rr = await fetch('/api/admin/autoreply/delete?id='+encodeURIComponent(it.id), { method:'POST', headers:{ Authorization: adm() }});
+            alert(rr.ok ? '已删除' : '删除失败'); await loadAutoReplies();
+          };
+          tr.children[3].appendChild(del);
+          tb.appendChild(tr);
+        }
+      } catch {
+        document.querySelector('#ar_tbl tbody').innerHTML = '<tr><td colspan="4">加载失败</td></tr>';
+      }
+    }
+    async function addAutoReply() {
+      const kw = document.getElementById('ar_kw').value.trim();
+      const rp = document.getElementById('ar_reply').value.trim();
+      if (!kw || !rp) { alert('请填写关键词与回复内容'); return; }
+      const payload = { keyword: kw, reply_text: rp, enabled: 1 };
+      const r = await fetch('/api/admin/autoreply/add', { method:'POST', headers:{ 'Content-Type':'application/json', Authorization: adm() }, body: JSON.stringify(payload) });
+      alert(r.ok ? '已保存规则' : '保存失败');
+      await loadAutoReplies();
+    }
+    async function findLatestOrderForUser(uid) {
+      try {
+        const r = await fetch('/api/admin/chat/users?limit=50', { headers:{ Authorization: adm() }});
+        if (!r.ok) return { order_id: null, order_no: null, order_status: null };
+        const arr = await r.json();
+        const it = arr.find(x => x.user_id === uid) || {};
+        return { order_id: it.order_id || null, order_no: it.order_no || null, order_status: it.order_status || null };
+      } catch {
+        return { order_id: null, order_no: null, order_status: null };
+      }
+    }
+    async function markBannedTags() {
+      try {
+        const r = await fetch('/api/admin/users/banned', { headers:{ Authorization: adm() }});
+        if (!r.ok) return;
+        const banned = new Set((await r.json()).map(x=>x.user_id));
+        for (const uid of Object.keys(userNodes)) {
+          const node = userNodes[uid];
+          if (!node) continue;
+          const tagId = 'ban_tag_' + uid;
+          let tag = document.getElementById(tagId);
+          if (banned.has(uid)) {
+            if (!tag) { tag = document.createElement('span'); tag.id = tagId; tag.style.color='#e53935'; tag.style.marginLeft='6px'; tag.textContent='已禁止'; node.link.parentNode.insertBefore(tag, node.link.nextSibling); }
+          } else {
+            if (tag) tag.remove();
+          }
+        }
+      } catch {}
+    }
+    async function markPaid() {
+      const t = document.getElementById('paid_msg');
+      const url = document.getElementById('proof').value.trim();
+      if (!currentOrderId) { t.textContent = '缺少订单，无法标记'; return; }
+      if (!url) { t.textContent = '请填写或自动识别凭证图片URL'; return; }
+      const r = await fetch('/api/admin/orders/mark_paid', { method:'POST', headers:{ 'Content-Type':'application/json', Authorization: adm() }, body: JSON.stringify({ order_id: currentOrderId, proof_url: url })});
+      t.textContent = r.ok ? '已标记为已支付' : '标记失败';
+      await loadUsers();
+      adminLastTs = ""; // 强制刷新完整历史，确保显示系统自动通知
+      await loadMessages();
+    }
+    async function markDelivered() {
+      const t = document.getElementById('delivered_msg');
+      const note = document.getElementById('deliver_note').value.trim();
+      if (!currentOrderId) { t.textContent = '缺少订单，无法标记'; return; }
+      const r = await fetch('/api/admin/orders/mark_delivered', { method:'POST', headers:{ 'Content-Type':'application/json', Authorization: adm() }, body: JSON.stringify({ order_id: currentOrderId, note: note })});
+      t.textContent = r.ok ? '已标注为已交付' : '标注失败';
+      await loadUsers();
+      adminLastTs = ""; // 强制刷新完整历史，确保显示系统自动通知（含订单号）
+      await loadMessages();
+    }
+    async function notifyPaid() {
+      const t = document.getElementById('paid_msg');
+      if (!currentUid) { t.textContent='请先选择用户'; return; }
+      const txt = '您的订单 已进入处理流程';
+      const r = await fetch('/api/admin/chat/send', { method:'POST', headers:{ 'Content-Type':'application/json', Authorization: adm() }, body: JSON.stringify({ user_id: currentUid, text: txt })});
+      t.textContent = r.ok ? '已通知用户流程开始' : '通知失败';
+      adminLastTs = ""; await loadMessages();
+    }
+    async function notifyDelivered() {
+      const t = document.getElementById('delivered_msg');
+      if (!currentUid) { t.textContent='请先选择用户'; return; }
+      const ono = currentOrderNo || '';
+      const txt = '您的订单“' + (ono || '—') + '” 已完成！';
+      const r = await fetch('/api/admin/chat/send', { method:'POST', headers:{ 'Content-Type':'application/json', Authorization: adm() }, body: JSON.stringify({ user_id: currentUid, text: txt })});
+      t.textContent = r.ok ? '已通知用户订单完成' : '通知失败';
+      adminLastTs = ""; await loadMessages();
+    }
+    function parseIds(raw) {
+      return (raw||'').split(/[\n,]/).map(x=>x.trim()).filter(Boolean);
+    }
+    async function broadcastText() {
+      const all = document.getElementById('bc_all').checked;
+      const ids = parseIds(document.getElementById('bc_ids').value);
+      const txt = document.getElementById('bc_text').value.trim();
+      const t = document.getElementById('bc_msg');
+      if (!all && ids.length === 0) { t.textContent='请勾选全部或填写用户ID'; return; }
+      if (!txt) { t.textContent='请填写群发文本'; return; }
+      const payload = { kind:'text', text: txt, all: all, user_ids: ids };
+      const r = await fetch('/api/admin/chat/broadcast', { method:'POST', headers:{ 'Content-Type':'application/json', Authorization: adm() }, body: JSON.stringify(payload) });
+      if (r.ok) { t.textContent = '文本群发已发送'; }
+      else {
+        let msg = '文本群发失败(' + r.status + ')';
+        try { msg += ' ' + await r.text(); } catch {}
+        t.textContent = msg;
+      }
+    }
+    async function broadcastFile() {
+      const all = document.getElementById('bc_all').checked;
+      const ids = parseIds(document.getElementById('bc_ids').value);
+      const t = document.getElementById('bc_msg');
+      const f = document.getElementById('bc_file').files[0];
+      if (!all && ids.length === 0) { t.textContent='请勾选全部或填写用户ID'; return; }
+      if (!f) { t.textContent='请选择文件'; return; }
+      let r;
+      try {
+        r = await fetch('/api/uploads/raw?filename=' + encodeURIComponent(f.name) + '&mime_type=' + encodeURIComponent(f.type||'application/octet-stream'), { method:'POST', body: f });
+      } catch { r = null; }
+      if (!r || !r.ok) { t.textContent='上传失败'; return; }
+      const d = await r.json();
+      let kind = 'file';
+      const ct = (d.content_type||'').toLowerCase();
+      if (ct.startsWith('image/')) kind = 'image';
+      else if (ct.startsWith('video/')) kind = 'video';
+      const payload = { kind: kind, content: d.url, all: all, user_ids: ids };
+      const s = await fetch('/api/admin/chat/broadcast', { method:'POST', headers:{ 'Content-Type':'application/json', Authorization: adm() }, body: JSON.stringify(payload) });
+      if (s.ok) { t.textContent = '附件群发已发送'; }
+      else {
+        let msg = '附件群发失败(' + s.status + ')';
+        try { msg += ' ' + await s.text(); } catch {}
+        t.textContent = msg;
+      }
+    }
+    loadUsers();
+    setInterval(async ()=>{
+      // 始终轻量刷新用户列表以更新未读红点，但只有开启时才刷新消息区
+      await loadUsers();
+      await markBannedTags();
+      if (document.getElementById('auto_refresh').checked && currentUid) await loadMessages();
+    }, 3000);
+    let adminLastTs = "";
+    function showPreview(url) {
+      let ov = document.getElementById('img_preview');
+      if (!ov) {
+        ov = document.createElement('div'); ov.id='img_preview'; ov.style.position='fixed'; ov.style.left='0'; ov.style.top='0'; ov.style.right='0'; ov.style.bottom='0'; ov.style.background='rgba(0,0,0,0.6)'; ov.style.display='none'; ov.style.alignItems='center'; ov.style.justifyContent='center'; ov.style.zIndex='99999';
+        const img = document.createElement('img'); img.id='img_preview_img'; img.style.maxWidth='90%'; img.style.maxHeight='90%'; img.style.boxShadow='0 8px 24px rgba(0,0,0,0.3)';
+        ov.appendChild(img);
+        ov.onclick = ()=>{ ov.style.display='none'; };
+        document.body.appendChild(ov);
+      }
+      const im = document.getElementById('img_preview_img');
+      im.src = url;
+      ov.style.display='flex';
+    }
+    (function initByQuery() {
+      const uid = q('uid');
+      if (uid) selectUser(uid);
+    })();
+  </script>
+</body>
+</html>

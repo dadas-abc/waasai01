@@ -1,0 +1,202 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8"/>
+  <title>码池配置</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <style>
+    body { font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif; margin: 24px; max-width: 760px; }
+    .box { border: 1px solid #ddd; border-radius: 8px; padding: 16px; }
+    input, button { padding: 8px; margin: 6px 0; }
+    .ok { color: #0a0; } .err { color: #a00; } a { color: #1677ff; }
+    table { border-collapse: collapse; width: 100%; }
+    th, td { border: 1px solid #eee; padding: 8px; text-align: left; }
+  </style>
+</head>
+<body>
+  <h1>码池配置</h1>
+  <div class="box">
+    <div>项目ID（留空表示通用码）</div>
+    <input id="pid" placeholder="项目ID（可留空）"/>
+    <div>收款渠道</div>
+    <select id="channel">
+      <option value="wechat">微信收款码</option>
+      <option value="alipay">支付宝收款码</option>
+    </select>
+    <div>收款码名称（例如：万豪商贸-微信码）</div>
+    <input id="cname" placeholder="收款码名称"/>
+    <div>上传二维码图片</div>
+    <input id="file" type="file" accept="image/*"/>
+    <button onclick="upload()">上传图片</button>
+    <div id="up_msg"></div>
+    <button onclick="add()">保存为码池二维码</button>
+    <div id="msg"></div>
+  </div>
+  <div class="box">
+    <div>已配置的码池</div>
+    <table id="tbl"><thead><tr><th>ID</th><th>项目ID</th><th>渠道</th><th>名称</th><th>收款码图片</th><th>启用</th></tr></thead><tbody></tbody></table>
+  </div>
+  <div class="box">
+    <div style="font-weight:600; margin-bottom:8px;">每日收款统计</div>
+    <div>统计日期（YYYY-MM-DD）</div>
+    <input id="stat_date" placeholder="YYYY-MM-DD"/>
+    <button onclick="loadStats()">刷新统计</button>
+    <button onclick="setToday()">今天</button>
+    <button onclick="setYesterday()">昨天</button>
+    <table id="stats_tbl"><thead><tr><th>收款码名称</th><th>二维码</th><th>日期</th><th>订单数</th><th>总金额（元）</th></tr></thead><tbody></tbody></table>
+    <button onclick="downloadStatsSummary()">下载汇总CSV</button>
+    <div style="font-weight:600; margin:12px 0 6px;">每日收款明细</div>
+    <button onclick="loadStatsOrders()">刷新明细</button>
+    <table id="stats_orders_tbl"><thead><tr><th>收款码名称</th><th>订单号</th><th>用户ID</th><th>付款时间</th><th>金额（元）</th></tr></thead><tbody></tbody></table>
+    <button onclick="downloadStatsOrders()">下载明细CSV</button>
+  </div>
+  <div><a href="/web/admin/index.html">返回后台首页</a></div>
+  <script src="/web/utils.js"></script>
+  <script>
+    function adm() { return localStorage.getItem('adm_token') || 'admin-demo-token'; }
+    let uploadedUrl = null;
+    async function upload() {
+      const file = document.getElementById('file').files[0];
+      const t = document.getElementById('up_msg');
+      if (!file) { t.innerHTML = '<span class="err">请选择图片</span>'; return; }
+      let r;
+      try {
+        if (file.size > 5 * 1024 * 1024) {
+          r = await fetch('/api/uploads/raw?filename=' + encodeURIComponent(file.name) + '&mime_type=' + encodeURIComponent(file.type||'image/jpeg'), { method:'POST', body: file });
+        } else {
+          const buf = await file.arrayBuffer();
+          const b64 = btoa(String.fromCharCode(...new Uint8Array(buf)));
+          r = await fetch('/api/uploads/base64', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ filename: file.name, content_b64: b64, mime_type: file.type||'image/jpeg' })});
+        }
+      } catch { r = null; }
+      if (r && r.ok) { const d = await r.json(); uploadedUrl = d.url; t.innerHTML = '<span class="ok">已上传：' + d.url + '</span>'; }
+      else { t.innerHTML = '<span class="err">上传失败</span>'; }
+    }
+    async function add() {
+      const t = document.getElementById('msg');
+      if (!uploadedUrl) { t.innerHTML = '<span class="err">请先上传图片</span>'; return; }
+      const pidRaw = document.getElementById('pid').value.trim();
+      const payload = { project_id: (pidRaw ? Number(pidRaw) : null), image_url: uploadedUrl, enabled: 1, channel: document.getElementById('channel').value, display_name: document.getElementById('cname').value.trim() };
+      const r = await fetch('/api/admin/codepool/add', { method:'POST', headers:{'Content-Type':'application/json', Authorization: adm()}, body: JSON.stringify(payload)});
+      t.innerHTML = r.ok ? '<span class="ok">已保存</span>' : '<span class="err">保存失败</span>';
+      await load();
+    }
+    async function load() {
+      const r = await fetch('/api/admin/codepool/list', { headers:{ Authorization: adm() }});
+      const tbody = document.querySelector('#tbl tbody'); tbody.innerHTML = '';
+      if (!r.ok) return;
+      const arr = await r.json();
+      for (const it of arr) {
+        const tr = document.createElement('tr');
+        const img = document.createElement('img'); img.src = it.image_url; img.style.maxWidth='160px'; img.style.border='1px solid #eee';
+        tr.innerHTML = '<td>'+it.id+'</td><td>'+ (it.project_id ?? '—') +'</td><td>'+ (it.channel || '—') +'</td><td>'+ (it.display_name || '—') +'</td><td></td><td>'+ (it.enabled? '是':'否') +'</td>';
+        tr.children[4].appendChild(img);
+        const del = document.createElement('button'); del.textContent = '删除'; del.style.marginLeft='8px';
+        del.onclick = async () => {
+          if (!confirm('确认删除码池ID ' + it.id + ' ?')) return;
+          const rr = await fetch('/api/admin/codepool/delete?id=' + encodeURIComponent(it.id), { method:'POST', headers:{ Authorization: adm() }});
+          if (rr.ok) { await load(); } else { alert('删除失败'); }
+        };
+        tr.children[4].appendChild(del);
+        tbody.appendChild(tr);
+      }
+    }
+    async function loadStats() {
+      const d = (document.getElementById('stat_date').value || '').trim();
+      const url = '/api/admin/codepool/stats' + (d ? ('?date=' + encodeURIComponent(d)) : '') + (d ? '&' : '?') + 't=' + Date.now();
+      const r = await fetch(url, { headers:{ Authorization: adm() }});
+      const tbody = document.querySelector('#stats_tbl tbody'); tbody.innerHTML = '';
+      if (!r.ok) { tbody.innerHTML = '<tr><td colspan="6">统计加载失败</td></tr>'; return; }
+      const arr = await r.json();
+      for (const it of arr) {
+        const tr = document.createElement('tr');
+        const amt = Number(it.total_amount || 0).toFixed(2);
+        const img = it.image_url ? ('<a href="'+it.image_url+'" target="_blank">查看</a>') : '—';
+        tr.innerHTML = '<td>'+ (it.display_name || '—') +'</td><td>'+ img +'</td><td>'+it.stat_date+'</td><td>'+ (it.order_count || 0) +'</td><td>'+ amt +'</td>';
+        tbody.appendChild(tr);
+      }
+    }
+    async function downloadStatsSummary() {
+      const d = (document.getElementById('stat_date').value || '').trim();
+      const url = '/api/admin/codepool/stats' + (d ? ('?date=' + encodeURIComponent(d)) : '');
+      const r = await fetch(url, { headers:{ Authorization: adm() }});
+      if (!r.ok) { alert('下载失败'); return; }
+      const arr = await r.json();
+      const header = ['日期','渠道','收款码名称','订单数','总金额（元）'];
+      const lines = [header.join(',')];
+      for (const it of arr) {
+        const line = [
+          it.stat_date || '',
+          it.channel || '',
+          it.display_name || '',
+          String(it.order_count || 0),
+          Number(it.total_amount || 0).toFixed(2)
+        ].map(x => String(x).replace(/"/g,'""'));
+        lines.push(line.join(','));
+      }
+      const csv = '\uFEFF' + lines.join('\n');
+      const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' });
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = '每日收款汇总_' + (d || '') + '.csv';
+      a.click();
+      URL.revokeObjectURL(a.href);
+    }
+    async function loadStatsOrders() {
+      const d = (document.getElementById('stat_date').value || '').trim();
+      const url = '/api/admin/codepool/stats_orders' + (d ? ('?date=' + encodeURIComponent(d)) : '') + (d ? '&' : '?') + 't=' + Date.now();
+      const r = await fetch(url, { headers:{ Authorization: adm() }});
+      const tbody = document.querySelector('#stats_orders_tbl tbody'); tbody.innerHTML = '';
+      if (!r.ok) { tbody.innerHTML = '<tr><td colspan="5">明细加载失败</td></tr>'; return; }
+      const arr = await r.json();
+      for (const it of arr) {
+        const tr = document.createElement('tr');
+        const amt = Number(it.amount || 0).toFixed(2);
+        tr.innerHTML = '<td>'+ (it.display_name || '—') +'</td><td>'+it.order_no+'</td><td>'+ (it.user_id || '') +'</td><td>'+ formatCST(it.paid_at) +'</td><td>'+amt+'</td>';
+        tbody.appendChild(tr);
+      }
+    }
+    async function downloadStatsOrders() {
+      const d = (document.getElementById('stat_date').value || '').trim();
+      const url = '/api/admin/codepool/stats_orders' + (d ? ('?date=' + encodeURIComponent(d)) : '');
+      const r = await fetch(url, { headers:{ Authorization: adm() }});
+      if (!r.ok) { alert('下载失败'); return; }
+      const arr = await r.json();
+      const header = ['收款码名称','订单号','用户ID','付款时间','金额（元）'];
+      const lines = [header.join(',')];
+      for (const it of arr) {
+        const line = [
+          (it.display_name || ''),
+          (it.order_no || ''),
+          (it.user_id || ''),
+          formatCST(it.paid_at || ''),
+          Number(it.amount || 0).toFixed(2)
+        ].map(x => String(x).replace(/"/g,'""'));
+        lines.push(line.join(','));
+      }
+      const csv = '\uFEFF' + lines.join('\n');
+      const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' });
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = '每日收款明细_' + (d || '') + '.csv';
+      a.click();
+      URL.revokeObjectURL(a.href);
+    }
+    function setToday() {
+      const d = new Date();
+      const y = d.getFullYear(), m = String(d.getMonth()+1).padStart(2,'0'), da = String(d.getDate()).padStart(2,'0');
+      document.getElementById('stat_date').value = y + '-' + m + '-' + da;
+      loadStats(); loadStatsOrders();
+    }
+    function setYesterday() {
+      const d = new Date(Date.now() - 24*3600*1000);
+      const y = d.getFullYear(), m = String(d.getMonth()+1).padStart(2,'0'), da = String(d.getDate()).padStart(2,'0');
+      document.getElementById('stat_date').value = y + '-' + m + '-' + da;
+      loadStats(); loadStatsOrders();
+    }
+    load();
+    loadStats();
+    loadStatsOrders();
+  </script>
+</body>
+</html>

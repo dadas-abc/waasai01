@@ -1,0 +1,37 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8"/>
+  <title>管理后台</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <style>
+    body { font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif; margin: 24px; max-width: 720px; }
+    .box { border: 1px solid #ddd; border-radius: 8px; padding: 16px; }
+    input, button, a { padding: 8px; margin: 6px 0; }
+    a { display: inline-block; color: #1677ff; }
+  </style>
+</head>
+<body>
+  <h1>管理后台</h1>
+  <div class="box">
+    <div>管理员令牌（ADMIN_TOKEN）</div>
+    <input id="adm" placeholder="ADMIN_TOKEN（默认：admin-demo-token）"/>
+    <button onclick="save()">保存令牌</button>
+    <div id="msg"></div>
+  </div>
+  <div class="box">
+    <div>模块入口</div>
+    <a href="/web/admin/codepool.html">码池配置</a>
+    <a href="/web/admin/chat_console.html">客服控制台</a>
+    <a href="/web/admin/orders.html">订单列表</a>
+    <a href="/web/admin/projects.html">项目管理</a>
+  </div>
+  <script>
+    function save() {
+      localStorage.setItem('adm_token', document.getElementById('adm').value.trim());
+      document.getElementById('msg').textContent = '已保存';
+    }
+    document.getElementById('adm').value = localStorage.getItem('adm_token') || 'admin-demo-token';
+  </script>
+</body>
+</html>

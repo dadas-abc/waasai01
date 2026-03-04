@@ -1,0 +1,195 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8"/>
+  <title>客服聊天</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <style>
+    body { font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif; margin: 24px; max-width: 720px; }
+    .box { border: 1px solid #ddd; border-radius: 8px; padding: 16px; }
+    .msg { border-bottom: 1px solid #eee; padding: 6px 0; }
+    .ok { color: #0a0; } .err { color: #a00; }
+    input, button { padding: 8px; margin: 6px 0; }
+  </style>
+</head>
+<body>
+  <h1>客服聊天</h1>
+  <div class="box">
+    <div id="unread_user" style="display:none; background:#fff3cd; color:#8a6d3b; padding:6px; border:1px solid #ffeeba; border-radius:4px; margin-bottom:8px;">未读 0 条客服消息</div>
+    <div id="list"></div>
+    <input id="text" placeholder="输入消息"/>
+    <button onclick="send()">发送</button>
+    <div style="margin-top:8px; border-top:1px solid #eee; padding-top:8px;">
+      <div style="font-weight:600; margin-bottom:6px;">发送付款截图（支持图片）</div>
+      <input id="pay_file" type="file" accept="image/*"/>
+      <button onclick="sendImage()">上传并发送</button>
+      <div id="up_msg" class="hint"></div>
+    </div>
+    <div class="meta"><a href="/web/index.html">返回首页</a></div>
+  </div>
+  <script src="/web/utils.js"></script>
+  <script>
+    function q(k) { const u = new URL(location.href); return u.searchParams.get(k); }
+    let lastTs = "";
+    let suppressSendBeep = false;
+    function beep() {
+      try {
+        const ctx = new (window.AudioContext || window.webkitAudioContext)();
+        const playTone = (freq, dur, vol) => {
+          const o = ctx.createOscillator(), g = ctx.createGain();
+          o.type = 'triangle'; o.frequency.value = freq; g.gain.value = vol;
+          o.connect(g); g.connect(ctx.destination); o.start();
+          setTimeout(()=>{ o.stop(); }, dur);
+        };
+        playTone(784, 120, 0.04);
+        setTimeout(()=>{ playTone(1046, 160, 0.04); }, 140);
+        setTimeout(()=>{ ctx.close(); }, 350);
+      } catch {}
+    }
+    async function load() {
+      const token = localStorage.getItem('token'); const box = document.getElementById('list');
+      if (!token) { box.innerHTML = '<span class="err">未登录</span>'; return; }
+      const r = await fetch('/api/chat/messages', { headers: { Authorization: 'Bearer ' + token }});
+      const st = box.scrollTop; const nearBottom = (box.scrollHeight - box.scrollTop - box.clientHeight) < 40;
+      if (!r.ok) { box.innerHTML = '<span class="err">加载失败</span>'; return; }
+      const arr = await r.json();
+      // 只追加新消息
+      const prevTs = lastTs;
+      const news = arr.filter(m => !lastTs || (m.ts > lastTs));
+      let newFromAgent = 0;
+      for (const it of news) {
+        const d = document.createElement('div'); d.className = 'msg';
+        if (it.kind === 'image') {
+          const ts = document.createElement('div'); ts.style.color='#666'; ts.style.fontSize='12px';
+          const disp = formatCST(it.ts);
+          const sender = (it.sender==='agent'?'客服':(it.sender==='user'?'用户':it.sender));
+          ts.textContent = disp + ' ' + sender + '：图片';
+          const img = document.createElement('img'); img.src = it.content; img.style.maxWidth='360px'; img.style.border='1px solid #eee'; img.style.marginTop='6px'; img.style.cursor='zoom-in'; img.onclick = ()=>showPreview(it.content);
+          const link = document.createElement('a'); link.href = it.content; link.textContent = '保存图片'; link.download = it.content.split('/').pop(); link.style.marginLeft='8px';
+          d.appendChild(ts); d.appendChild(img); d.appendChild(link);
+        } else if (it.kind === 'video') {
+          const ts = document.createElement('div'); ts.style.color='#666'; ts.style.fontSize='12px';
+          const disp = formatCST(it.ts);
+          const sender = (it.sender==='agent'?'客服':(it.sender==='user'?'用户':it.sender));
+          ts.textContent = disp + ' ' + sender + '：视频';
+          const video = document.createElement('video'); video.src = it.content; video.controls = true; video.style.maxWidth='360px'; video.style.marginTop='6px';
+          const link = document.createElement('a'); link.href = it.content; link.textContent = '下载视频'; link.download = it.content.split('/').pop(); link.style.marginLeft='8px';
+          d.appendChild(ts); d.appendChild(video); d.appendChild(link);
+        } else if (it.kind === 'file') {
+          const ts = document.createElement('div'); ts.style.color='#666'; ts.style.fontSize='12px';
+          const disp = formatCST(it.ts);
+          const sender = (it.sender==='agent'?'客服':(it.sender==='user'?'用户':it.sender));
+          ts.textContent = disp + ' ' + sender + '：文件';
+          const name = (it.content||'').split('/').pop()||''; const ext = name.split('.').pop().toLowerCase();
+          const pre = document.createElement('button'); pre.textContent = '预览'; pre.style.marginLeft='8px'; pre.onclick = ()=>previewFile(it.content, ext);
+          const link = document.createElement('a'); link.href = it.content; link.textContent = '下载文件'; link.download = name; link.style.marginLeft='8px';
+          d.appendChild(ts); d.appendChild(pre); d.appendChild(link);
+        } else {
+          const disp = formatCST(it.ts);
+          const sender = (it.sender==='agent'?'客服':(it.sender==='user'?'用户':it.sender));
+          d.textContent = disp + ' ' + sender + '：' + it.content;
+        }
+        box.appendChild(d);
+        if (it.sender === 'agent') newFromAgent++;
+      }
+      if (prevTs && newFromAgent > 0 && !suppressSendBeep) beep();
+      // 未读提醒：当有新客服消息且当前视图不在底部
+      const b = document.getElementById('unread_user');
+      const unreadCount = news.filter(m => m.sender === 'agent').length;
+      if (prevTs && unreadCount > 0 && !nearBottom) { b.textContent = '未读 ' + unreadCount + ' 条客服消息'; b.style.display='block'; }
+      else { b.style.display='none'; }
+      // 更新lastTs为最新一条
+      if (arr.length > 0) lastTs = arr[arr.length - 1].ts;
+      // 如在底部，自动滚到底部；否则保持当前位置
+      box.scrollTop = nearBottom ? box.scrollHeight : st;
+    }
+    async function send() {
+      const token = localStorage.getItem('token'); const t = document.getElementById('text');
+      const r = await fetch('/api/chat/send?kind=text&content=' + encodeURIComponent(t.value), { method: 'POST', headers: { Authorization: 'Bearer ' + token }});
+      if (r.ok) { t.value=''; suppressSendBeep = true; await load(); suppressSendBeep = false; } else { alert('发送失败'); }
+    }
+    async function sendImage() {
+      const token = localStorage.getItem('token'); const f = document.getElementById('pay_file').files[0];
+      const u = document.getElementById('up_msg');
+      if (!f) { u.textContent = '请先选择图片'; return; }
+      let r;
+      try {
+        r = await fetch('/api/uploads/raw?filename=' + encodeURIComponent(f.name) + '&mime_type=' + encodeURIComponent(f.type||'image/jpeg'), { method:'POST', body: f });
+      } catch { r = null; }
+      if (!r || !r.ok) { u.textContent = '上传失败'; return; }
+      const d = await r.json(); u.textContent = '已上传：' + d.url;
+      const msg = '订单 ' + (q('oid')||'') + ' 付款截图';
+      const s1 = await fetch('/api/chat/send?kind=text&content=' + encodeURIComponent(msg), { method:'POST', headers:{ Authorization:'Bearer '+token }});
+      const s2 = await fetch('/api/chat/send?kind=image&content=' + encodeURIComponent(d.url), { method:'POST', headers:{ Authorization:'Bearer '+token }});
+      if (s2.ok) { suppressSendBeep = true; await load(); suppressSendBeep = false; } else { u.textContent = '发送失败'; }
+    }
+    // 入口引导文案（从支付页跳转）
+    (function guide() {
+      const oid = q('oid'), msg = q('msg');
+      const t = document.getElementById('text');
+      if (msg) t.value = msg;
+    })();
+    load();
+    setInterval(async ()=>{ await load(); }, 3000);
+    function showPreview(url) {
+      let ov = document.getElementById('img_preview');
+      if (!ov) {
+        ov = document.createElement('div'); ov.id='img_preview'; ov.style.position='fixed'; ov.style.left='0'; ov.style.top='0'; ov.style.right='0'; ov.style.bottom='0'; ov.style.background='rgba(0,0,0,0.6)'; ov.style.display='none'; ov.style.alignItems='center'; ov.style.justifyContent='center'; ov.style.zIndex='99999';
+        const img = document.createElement('img'); img.id='img_preview_img'; img.style.maxWidth='90%'; img.style.maxHeight='90%'; img.style.boxShadow='0 8px 24px rgba(0,0,0,0.3)';
+        ov.appendChild(img);
+        ov.onclick = ()=>{ ov.style.display='none'; };
+        document.body.appendChild(ov);
+      }
+      const im = document.getElementById('img_preview_img');
+      im.src = url;
+      ov.style.display='flex';
+    }
+    async function previewFile(url, ext) {
+      if (['png','jpg','jpeg','gif','webp','bmp'].includes(ext)) { showPreview(url); return; }
+      if (['mp4','webm','mov','mkv','avi'].includes(ext)) {
+        let ov = document.getElementById('doc_preview');
+        if (!ov) {
+          ov = document.createElement('div'); ov.id='doc_preview'; ov.style.position='fixed'; ov.style.left='0'; ov.style.top='0'; ov.style.right='0'; ov.style.bottom='0'; ov.style.background='rgba(0,0,0,0.6)'; ov.style.display='none'; ov.style.alignItems='center'; ov.style.justifyContent='center'; ov.style.zIndex='99999';
+          const box = document.createElement('div'); box.id='doc_preview_box'; box.style.background='#fff'; box.style.padding='12px'; box.style.borderRadius='8px'; box.style.maxWidth='92%'; box.style.maxHeight='92%'; box.style.boxShadow='0 8px 24px rgba(0,0,0,0.3)';
+          ov.appendChild(box); ov.onclick = ()=>{ ov.style.display='none'; };
+          document.body.appendChild(ov);
+        }
+        const box = document.getElementById('doc_preview_box'); box.innerHTML='';
+        const v = document.createElement('video'); v.src = url; v.controls = true; v.style.maxWidth='88vw'; v.style.maxHeight='80vh';
+        box.appendChild(v); ov.style.display='flex'; return;
+      }
+      if (ext === 'pdf') {
+        let ov = document.getElementById('doc_preview');
+        if (!ov) {
+          ov = document.createElement('div'); ov.id='doc_preview'; ov.style.position='fixed'; ov.style.left='0'; ov.style.top='0'; ov.style.right='0'; ov.style.bottom='0'; ov.style.background='rgba(0,0,0,0.6)'; ov.style.display='none'; ov.style.alignItems='center'; ov.style.justifyContent='center'; ov.style.zIndex='99999';
+          const box = document.createElement('div'); box.id='doc_preview_box'; box.style.background='#fff'; box.style.padding='12px'; box.style.borderRadius='8px'; box.style.maxWidth='92%'; box.style.maxHeight='92%'; box.style.boxShadow='0 8px 24px rgba(0,0,0,0.3)';
+          ov.appendChild(box); ov.onclick = ()=>{ ov.style.display='none'; };
+          document.body.appendChild(ov);
+        }
+        const box = document.getElementById('doc_preview_box'); box.innerHTML='';
+        const fr = document.createElement('iframe'); fr.src = url; fr.style.width='88vw'; fr.style.height='80vh'; fr.style.border='0';
+        box.appendChild(fr); ov.style.display='flex'; return;
+      }
+      if (['txt','csv','json','log','md'].includes(ext)) {
+        try {
+          const r = await fetch(url);
+          if (r.ok) {
+            const tx = await r.text();
+            let ov = document.getElementById('doc_preview');
+            if (!ov) {
+              ov = document.createElement('div'); ov.id='doc_preview'; ov.style.position='fixed'; ov.style.left='0'; ov.style.top='0'; ov.style.right='0'; ov.style.bottom='0'; ov.style.background='rgba(0,0,0,0.6)'; ov.style.display='none'; ov.style.alignItems='center'; ov.style.justifyContent='center'; ov.style.zIndex='99999';
+              const box = document.createElement('div'); box.id='doc_preview_box'; box.style.background='#fff'; box.style.padding='12px'; box.style.borderRadius='8px'; box.style.maxWidth='92%'; box.style.maxHeight='92%'; box.style.boxShadow='0 8px 24px rgba(0,0,0,0.3)'; box.style.overflow='auto';
+              ov.appendChild(box); ov.onclick = ()=>{ ov.style.display='none'; };
+              document.body.appendChild(ov);
+            }
+            const box = document.getElementById('doc_preview_box'); box.innerHTML='';
+            const pre = document.createElement('pre'); pre.textContent = tx.slice(0, 200000);
+            box.appendChild(pre); ov.style.display='flex'; return;
+          }
+        } catch {}
+      }
+      window.open(url, '_blank');
+    }
+  </script>
+</body>
+</html>

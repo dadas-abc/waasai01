@@ -1,0 +1,108 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8"/>
+  <title>哇噻APP图标生成器</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <style>
+    body { font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif; margin: 24px; max-width: 860px; }
+    .box { border: 1px solid #ddd; border-radius: 8px; padding: 16px; margin-bottom: 16px; }
+    input, button, select { padding: 8px; margin: 6px 0; }
+    .grid { display:grid; grid-template-columns: 1fr 1fr; gap:16px; }
+    canvas { border:1px solid #eee; border-radius: 12px; }
+  </style>
+</head>
+<body>
+  <h1>哇噻APP图标生成器</h1>
+  <div class="box">
+    <div>文字</div>
+    <input id="text" value="哇"/>
+    <div>前景色</div>
+    <input id="fg" type="color" value="#ffffff"/>
+    <div>渐变起始色</div>
+    <input id="g1" type="color" value="#1677ff"/>
+    <div>渐变结束色</div>
+    <input id="g2" type="color" value="#49b3ff"/>
+    <div>圆角（像素）</div>
+    <input id="radius" type="number" value="32"/>
+    <button onclick="render()">重新生成</button>
+  </div>
+  <div class="box grid">
+    <div>
+      <div>192×192 预览</div>
+      <canvas id="c192" width="192" height="192"></canvas>
+      <div>
+        <button onclick="download('c192','waasai-192.png')">下载PNG</button>
+        <button onclick="save('c192')">保存到服务器</button>
+        <div id="s192"></div>
+      </div>
+    </div>
+    <div>
+      <div>512×512 预览</div>
+      <canvas id="c512" width="512" height="512"></canvas>
+      <div>
+        <button onclick="download('c512','waasai-512.png')">下载PNG</button>
+        <button onclick="save('c512')">保存到服务器</button>
+        <div id="s512"></div>
+      </div>
+    </div>
+  </div>
+  <div class="box">
+    <div>使用说明</div>
+    <div>1. 生成并保存后，会得到 /web/uploads/xxx.png 的地址</div>
+    <div>2. 可把 manifest.json 的 icons 指向该 PNG，并在页面加上 <code>&lt;link rel="apple-touch-icon" href="/web/uploads/xxx.png"&gt;</code></div>
+  </div>
+  <script>
+    function drawIcon(canvas, opts) {
+      const ctx = canvas.getContext('2d');
+      const w = canvas.width, h = canvas.height;
+      const r = Math.min(opts.radius, Math.min(w,h)/2);
+      ctx.clearRect(0,0,w,h);
+      ctx.beginPath();
+      ctx.moveTo(r,0);
+      ctx.lineTo(w-r,0); ctx.quadraticCurveTo(w,0,w,r);
+      ctx.lineTo(w,h-r); ctx.quadraticCurveTo(w,h,w-r,h);
+      ctx.lineTo(r,h); ctx.quadraticCurveTo(0,h,0,h-r);
+      ctx.lineTo(0,r); ctx.quadraticCurveTo(0,0,r,0);
+      ctx.closePath();
+      const g = ctx.createLinearGradient(0,0,w,h);
+      g.addColorStop(0, opts.g1); g.addColorStop(1, opts.g2);
+      ctx.fillStyle = g; ctx.fill();
+      ctx.fillStyle = opts.fg;
+      const fontSize = Math.floor(w*0.33);
+      ctx.font = 'bold ' + fontSize + 'px "Segoe UI", "PingFang SC", "Microsoft Yahei", sans-serif';
+      ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+      ctx.fillText(opts.text, w/2, h/2);
+    }
+    function readOpts() {
+      return {
+        text: document.getElementById('text').value || '哇',
+        fg: document.getElementById('fg').value || '#ffffff',
+        g1: document.getElementById('g1').value || '#1677ff',
+        g2: document.getElementById('g2').value || '#49b3ff',
+        radius: parseInt(document.getElementById('radius').value || '32')
+      };
+    }
+    function render() {
+      const opts = readOpts();
+      drawIcon(document.getElementById('c192'), opts);
+      drawIcon(document.getElementById('c512'), opts);
+    }
+    function download(id, name) {
+      const url = document.getElementById(id).toDataURL('image/png');
+      const a = document.createElement('a');
+      a.href = url; a.download = name; a.click();
+    }
+    async function save(id) {
+      const url = document.getElementById(id).toDataURL('image/png');
+      const b64 = url.split(',')[1];
+      const name = (id==='c192'?'waasai-192.png':'waasai-512.png');
+      const r = await fetch('/api/uploads/base64', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ filename: name, content_b64: b64, mime_type: 'image/png' })});
+      const t = document.getElementById(id==='c192'?'s192':'s512');
+      if (r.ok) { const d = await r.json(); t.textContent = '已保存：' + d.url; }
+      else { t.textContent = '保存失败'; }
+    }
+    render();
+  </script>
+</body>
+</html>

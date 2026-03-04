@@ -1,0 +1,211 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8"/>
+  <title>项目管理</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <style>
+    body { font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif; margin: 24px; max-width: 920px; }
+    .box { border: 1px solid #ddd; border-radius: 8px; padding: 16px; }
+    table { width: 100%; border-collapse: collapse; }
+    th, td { border: 1px solid #eee; padding: 8px; text-align: left; vertical-align: top; }
+    input, button, textarea { padding: 8px; margin: 6px 0; }
+    textarea { width: 100%; height: 80px; }
+    a { color: #1677ff; }
+  </style>
+</head>
+<body>
+  <h1>项目管理</h1>
+  <div class="box">
+    <div>管理员令牌</div>
+    <input id="adm" placeholder="ADMIN_TOKEN（默认：admin-demo-token）"/>
+    <button onclick="save()">保存令牌</button>
+    <div id="msg"></div>
+  </div>
+  <div class="box">
+    <h2>新增项目</h2>
+    <input id="name" placeholder="项目名称"/>
+    <textarea id="intro" placeholder="项目简介"></textarea>
+    <input id="price" placeholder="基础价格" value="99"/>
+    <input id="sla" placeholder="时效（小时）" value="24"/>
+    <div style="display:grid; grid-template-columns: 1fr 1fr; gap:12px;">
+      <div>
+        <div style="font-weight:600; margin-bottom:6px;">必填字段</div>
+        <div id="req_checks"></div>
+      </div>
+      <div>
+        <div style="font-weight:600; margin-bottom:6px;">可选字段</div>
+        <div id="opt_checks"></div>
+      </div>
+    </div>
+    <textarea id="hints" placeholder="字段提示（JSON）">{}</textarea>
+    <select id="status"><option value="上线">上线</option><option value="下线">下线</option></select>
+    <button onclick="add()">新增</button>
+    <div id="add_msg"></div>
+  </div>
+  <div class="box">
+    <h2>项目列表</h2>
+    <table>
+      <thead><tr><th>ID</th><th>名称</th><th>简介</th><th>价格</th><th>时效</th><th>字段</th><th>状态</th><th>操作</th></tr></thead>
+      <tbody id="rows"></tbody>
+    </table>
+  </div>
+  <div class="box"><a href="/web/admin/index.html">返回后台首页</a></div>
+  <script>
+    function adm() { return localStorage.getItem('adm_token') || 'admin-demo-token'; }
+    function save() { localStorage.setItem('adm_token', document.getElementById('adm').value.trim()); document.getElementById('msg').textContent='已保存'; }
+    document.getElementById('adm').value = adm();
+    const FIELD_MAP_EN2ZH = { name:'姓名', phone:'手机号', image_url:'图片', wechat_id:'微信号', id_card:'身份证号码', douyin_id:'抖音号', weibo_id:'微博号', qq_id:'QQ号', xhs_id:'小红书号', passport_no:'护照号', card_no:'银行卡号', corp_name:'企业名称', corp_credit_code:'企业信用代码' };
+    const FIELD_MAP_ZH2EN = Object.fromEntries(Object.entries(FIELD_MAP_EN2ZH).map(([k,v])=>[v,k]));
+    const FIELD_ALIASES_ZH2EN = { '图片地址':'image_url', '图片':'image_url', '姓名':'name', '手机号':'phone', '微信号':'wechat_id', '身份证':'id_card', '身份证号码':'id_card', '抖音号':'douyin_id', '微博号':'weibo_id', 'QQ号':'qq_id', '小红书号':'xhs_id', '护照号':'passport_no', '银行卡号':'card_no', '企业名称':'corp_name', '企业信用代码':'corp_credit_code' };
+    const STATUS_EN2ZH = { online:'上线', offline:'下线' };
+    const STATUS_ZH2EN = { 上线:'online', 下线:'offline' };
+    function toZhFields(arr) { return (arr||[]).map(x=>FIELD_MAP_EN2ZH[x]||x); }
+    function toEnFields(arr) { return (arr||[]).map(x=>FIELD_ALIASES_ZH2EN[x] || FIELD_MAP_ZH2EN[x] || x); }
+    function hintsEnToZh(obj) {
+      const out = {};
+      try {
+        const o = obj || {};
+        for (const k of Object.keys(o)) out[FIELD_MAP_EN2ZH[k]||k] = o[k];
+      } catch {}
+      return out;
+    }
+    function hintsZhToEn(obj) {
+      const out = {};
+      try {
+        const o = obj || {};
+        for (const k of Object.keys(o)) out[FIELD_MAP_ZH2EN[k]||k] = o[k];
+      } catch {}
+      return out;
+    }
+    const DEFAULT_HINTS_ZH = {
+      '手机号':'11位手机号',
+      '微信号':'以字母开头的6-20位',
+      '身份证号码':'15或18位',
+      '抖音号':'3-24位字母数字或_.-',
+      '微博号':'2-30位字母数字或下划线',
+      'QQ号':'5-11位数字',
+      '小红书号':'3-24位字母数字或下划线',
+      '护照号':'字母开头，后续7-17位字母数字',
+      '银行卡号':'12-19位数字',
+      '企业名称':'公司全称（2-80位，中英文/数字/括号等）',
+      '企业信用代码':'18位统一社会信用代码（大写字母或数字）'
+    };
+    // 预置新增提示为默认值
+    (function presetAddHints(){
+      try { document.getElementById('hints').value = JSON.stringify(DEFAULT_HINTS_ZH); } catch {}
+    })();
+    function renderAddFieldChecks() {
+      const allZh = Object.values(FIELD_MAP_EN2ZH);
+      function renderInto(id) {
+        const box = document.getElementById(id); box.innerHTML='';
+        for (const zh of allZh) {
+          const label = document.createElement('label'); label.style.display='inline-block'; label.style.margin='4px 12px 4px 0';
+          const cb = document.createElement('input'); cb.type='checkbox'; cb.dataset.zh = zh;
+          label.appendChild(cb); label.appendChild(document.createTextNode(' '+zh));
+          box.appendChild(label);
+        }
+      }
+      renderInto('req_checks'); renderInto('opt_checks');
+    }
+    renderAddFieldChecks();
+    function selectedZh(id) {
+      return Array.from(document.querySelectorAll('#'+id+' input[type=checkbox]:checked')).map(x=>x.dataset.zh);
+    }
+    async function add() {
+      const payload = {
+        name: document.getElementById('name').value.trim(),
+        intro: document.getElementById('intro').value.trim(),
+        base_price: parseFloat(document.getElementById('price').value.trim() || '0'),
+        sla_hours: parseInt(document.getElementById('sla').value.trim() || '24'),
+        required_fields: toEnFields(selectedZh('req_checks')),
+        optional_fields: toEnFields(selectedZh('opt_checks')),
+        field_hints: JSON.parse(document.getElementById('hints').value || '{}'),
+        status: STATUS_ZH2EN[document.getElementById('status').value] || 'online'
+      };
+      const r = await fetch('/api/admin/projects/upsert', { method:'POST', headers:{ 'Content-Type':'application/json', Authorization: adm() }, body: JSON.stringify(payload) });
+      document.getElementById('add_msg').textContent = r.ok ? '已新增' : '新增失败';
+      await load();
+    }
+    async function load() {
+      const r = await fetch('/api/admin/projects/list', { headers:{ Authorization: adm() }});
+      const tb = document.getElementById('rows'); tb.innerHTML='';
+      if (!r.ok) { tb.innerHTML = '<tr><td colspan="8">加载失败</td></tr>'; return; }
+      const arr = await r.json();
+      for (const it of arr) {
+        const tr = document.createElement('tr');
+        const reqZhList = toZhFields(it.required_fields||[]);
+        const optZhList = toZhFields(it.optional_fields||[]);
+        let hintsObjZh = hintsEnToZh(it.field_hints||{});
+        if (Object.keys(hintsObjZh).length === 0) hintsObjZh = DEFAULT_HINTS_ZH;
+        const hintsZh = JSON.stringify(hintsObjZh);
+        tr.innerHTML = '<td>'+it.id+'</td><td><input value="'+it.name+'" data-id="'+it.id+'" class="p_name"/></td><td><textarea class="p_intro">'+(it.intro||'')+'</textarea></td><td><input value="'+(it.base_price||0)+'" class="p_price"/></td><td><input value="'+(it.sla_hours||24)+'" class="p_sla"/></td><td><div>必填：<div class="p_req_dd"></div></div><div>可选：<div class="p_opt_dd"></div></div><div>提示：<textarea class="p_hints">'+hintsZh+'</textarea></div></td><td><select class="p_status"><option value="上线">上线</option><option value="下线">下线</option></select></td><td></td>';
+        tr.querySelector('.p_status').value = STATUS_EN2ZH[it.status || 'online'] || '上线';
+        (function renderRowDropdowns(){
+          const allZh = Object.values(FIELD_MAP_EN2ZH);
+          function buildDropdown(box, selected) {
+            box.innerHTML='';
+            box.style.position='relative';
+            const btn = document.createElement('button'); btn.type='button'; btn.textContent='选择 ▼';
+            const summary = document.createElement('span'); summary.style.marginLeft='8px'; summary.style.color='#666'; summary.style.fontSize='12px';
+            const panel = document.createElement('div'); panel.style.position='absolute'; panel.style.top='calc(100% + 4px)'; panel.style.left='0'; panel.style.zIndex='1000'; panel.style.background='#fff'; panel.style.border='1px solid #ddd'; panel.style.boxShadow='0 4px 12px rgba(0,0,0,0.08)'; panel.style.padding='8px'; panel.style.maxHeight='180px'; panel.style.overflow='auto'; panel.style.minWidth='280px'; panel.style.display='none'; panel.className='dd_panel';
+            for (const zh of allZh) {
+              const label = document.createElement('label'); label.style.display='block'; label.style.margin='4px 0';
+              const cb = document.createElement('input'); cb.type='checkbox'; cb.dataset.zh = zh; cb.checked = (selected||[]).includes(zh);
+              label.appendChild(cb); label.appendChild(document.createTextNode(' '+zh));
+              panel.appendChild(label);
+            }
+            function updateSummary() {
+              const vals = Array.from(panel.querySelectorAll('input[type=checkbox]:checked')).map(x=>x.dataset.zh);
+              summary.textContent = (vals.length>0 ? ('已选：'+vals.join('，')) : '未选择');
+            }
+            updateSummary();
+            Array.from(panel.querySelectorAll('input[type=checkbox]')).forEach(cb => { cb.onchange = updateSummary; });
+            btn.onclick = ()=>{ panel.style.display = (panel.style.display==='none'?'block':'none'); };
+            document.addEventListener('click', (e)=>{ if (!box.contains(e.target)) panel.style.display='none'; });
+            box.appendChild(btn); box.appendChild(summary); box.appendChild(panel);
+          }
+          buildDropdown(tr.querySelector('.p_req_dd'), reqZhList);
+          buildDropdown(tr.querySelector('.p_opt_dd'), optZhList);
+        })();
+        const btnSave = document.createElement('button'); btnSave.textContent='保存';
+        btnSave.onclick = async () => {
+          function selectedZhRow(panelSel) {
+            const panel = tr.querySelector(panelSel+' .dd_panel');
+            return Array.from(panel.querySelectorAll('input[type=checkbox]:checked')).map(x=>x.dataset.zh);
+          }
+          const payload = {
+            id: it.id,
+            name: tr.querySelector('.p_name').value.trim(),
+            intro: tr.querySelector('.p_intro').value.trim(),
+            base_price: parseFloat(tr.querySelector('.p_price').value.trim() || '0'),
+            sla_hours: parseInt(tr.querySelector('.p_sla').value.trim() || '24'),
+            required_fields: toEnFields(selectedZhRow('.p_req_dd')),
+            optional_fields: toEnFields(selectedZhRow('.p_opt_dd')),
+            field_hints: hintsZhToEn(JSON.parse(tr.querySelector('.p_hints').value || '{}')),
+            status: STATUS_ZH2EN[tr.querySelector('.p_status').value] || 'online'
+          };
+          const rr = await fetch('/api/admin/projects/upsert', { method:'POST', headers:{ 'Content-Type':'application/json', Authorization: adm() }, body: JSON.stringify(payload) });
+          alert(rr.ok ? '已保存' : '保存失败');
+          await load();
+        };
+        const btnDel = document.createElement('button'); btnDel.textContent='删除'; btnDel.style.marginLeft='8px';
+        btnDel.onclick = async () => {
+          if (!confirm('确认删除项目 '+it.id+' ?')) return;
+          const rr = await fetch('/api/admin/projects/delete?id='+encodeURIComponent(it.id), { method:'POST', headers:{ Authorization: adm() }});
+          alert(rr.ok ? '已删除' : '删除失败');
+          await load();
+        };
+        tr.children[7].appendChild(btnSave);
+        tr.children[7].appendChild(btnDel);
+        // 模板套用功能已移除
+        document.getElementById('rows').appendChild(tr);
+      }
+    }
+    load();
+    // 模板套用功能已移除
+  </script>
+  <script src="/web/support.js"></script>
+  <script>addSupportEntry();</script>
+</body>
+</html>

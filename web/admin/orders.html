@@ -1,0 +1,191 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8"/>
+  <title>订单列表</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <style>
+    body { font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif; margin: 24px; max-width: 920px; }
+    .box { border: 1px solid #ddd; border-radius: 8px; padding: 16px; }
+    table { width: 100%; border-collapse: collapse; }
+    th, td { border: 1px solid #eee; padding: 8px; text-align: left; }
+    input, button, select { padding: 8px; margin: 6px 0; }
+    a { color: #1677ff; }
+    .badge { display:inline-block; padding:2px 6px; border-radius: 12px; font-size:12px; color:#fff; }
+    .b-wait { background:#ff9800; }
+    .b-paid { background:#4caf50; }
+    .b-delivered { background:#2196f3; }
+    .b-overdue { background:#e53935; }
+  </style>
+</head>
+<body>
+  <h1>订单列表</h1>
+  <div class="box">
+    <div>管理员令牌</div>
+    <input id="adm" placeholder="ADMIN_TOKEN（默认：admin-demo-token）"/>
+    <button onclick="save()">保存令牌</button>
+    <div id="msg"></div>
+  </div>
+  <div class="box">
+    <div>
+      <label>筛选状态（可多选）</label>
+      <select id="st" multiple size="4" onchange="load()">
+        <option value="待支付">待支付</option>
+        <option value="已支付">已支付</option>
+        <option value="已交付">已交付</option>
+        <option value="逾期交付">逾期交付</option>
+      </select>
+      <button onclick="selectAllSt()">全选</button>
+      <button onclick="clearSt()">清空选择</button>
+      <button onclick="onlyOverdue()">仅显示逾期</button>
+      <button onclick="load()">刷新列表</button>
+      <button onclick="downloadOrders()">下载明细CSV</button>
+    </div>
+    <table>
+      <thead>
+        <tr><th>订单号</th><th>用户</th><th>项目</th><th>金额</th><th>状态</th><th>创建时间</th><th>操作</th></tr>
+      </thead>
+      <tbody id="rows"></tbody>
+    </table>
+  </div>
+  <div class="box"><a href="/web/admin/index.html">返回后台首页</a></div>
+  <script src="/web/utils.js"></script>
+  <script>
+    function adm() { return localStorage.getItem('adm_token') || 'admin-demo-token'; }
+    function save() { localStorage.setItem('adm_token', document.getElementById('adm').value.trim()); document.getElementById('msg').textContent='已保存'; }
+    document.getElementById('adm').value = adm();
+    let lastOrders = [];
+    let bannedSet = new Set();
+    async function load() {
+      try {
+        const br = await fetch('/api/admin/users/banned', { headers:{ Authorization: adm() }});
+        if (br.ok) {
+          const bl = await br.json();
+          bannedSet = new Set((bl||[]).map(x=>x.user_id));
+        }
+      } catch {}
+      const rp = await fetch('/api/admin/projects/list', { headers:{ Authorization: adm() }});
+      const proj = rp.ok ? await rp.json() : [];
+      const pmap = {}; for (const p of proj) pmap[p.id] = p;
+      const sel = Array.from(document.querySelectorAll('#st option:checked')).map(o=>o.value);
+      const r = await fetch('/api/admin/orders/list', { method:'POST', headers:{ 'Content-Type':'application/json', Authorization: adm() }, body: JSON.stringify({ status: null, limit: 200 })});
+      const tb = document.getElementById('rows'); tb.innerHTML='';
+      if (!r.ok) { tb.innerHTML = '<tr><td colspan="7">加载失败</td></tr>'; return; }
+      let arr = await r.json();
+      if (sel.length > 0) {
+        arr = arr.filter(x => {
+          let statusText = x.status;
+          try {
+            const p = pmap[x.project_id] || null;
+            if (p && x.status === '已支付') {
+              const sla = parseInt(p.sla_hours || 0);
+              const t0 = new Date(x.created_at).getTime();
+              const now = Date.now();
+              if (sla > 0 && now - t0 > sla * 3600 * 1000) statusText = '逾期交付';
+            }
+          } catch {}
+          return sel.includes(statusText);
+        });
+      }
+      lastOrders = arr;
+      for (const it of arr) {
+        const tr = document.createElement('tr');
+        const deliver = document.createElement('a'); deliver.href = '/web/admin/chat_console.html?uid=' + encodeURIComponent(it.user_id); deliver.textContent = '交付';
+        let statusText = it.status;
+        try {
+          const p = pmap[it.project_id] || null;
+          if (p && it.status === '已支付') {
+            const sla = parseInt(p.sla_hours || 0);
+            const t0 = new Date(it.created_at).getTime();
+            const now = Date.now();
+            if (sla > 0 && now - t0 > sla * 3600 * 1000) statusText = '逾期交付';
+          }
+        } catch {}
+        const created = formatCST(it.created_at);
+        let cls = 'b-paid';
+        if (statusText === '待支付') cls = 'b-wait';
+        else if (statusText === '已交付') cls = 'b-delivered';
+        else if (statusText === '逾期交付') cls = 'b-overdue';
+        const badge = '<span class="badge ' + cls + '">' + statusText + '</span>';
+        const bannedTag = bannedSet.has(it.user_id) ? '<span style="color:#e53935; margin-left:6px;">已禁止</span>' : '';
+        tr.innerHTML = '<td>' + it.order_no + '</td><td style="font-family: monospace;">' + it.user_id + bannedTag + '</td><td>' + it.project_id + '</td><td>' + it.amount + '</td><td>' + badge + '</td><td>' + created + '</td><td></td>';
+        tr.children[6].appendChild(deliver);
+        const mk = document.createElement('a'); mk.href='/web/admin/chat_console.html?uid=' + encodeURIComponent(it.user_id); mk.textContent='交付标记'; mk.style.marginLeft='8px';
+        tr.children[6].appendChild(mk);
+        const ban = document.createElement('a'); ban.href='#'; ban.textContent='禁止用户'; ban.style.marginLeft='8px';
+        ban.onclick = async (e)=>{ e.preventDefault(); await banUser(it.user_id); };
+        tr.children[6].appendChild(ban);
+        const unban = document.createElement('a'); unban.href='#'; unban.textContent='解除禁止'; unban.style.marginLeft='8px';
+        unban.onclick = async (e)=>{ e.preventDefault(); await unbanUser(it.user_id); };
+        tr.children[6].appendChild(unban);
+        const tl = document.createElement('a'); tl.href='#'; tl.textContent='时间线'; tl.style.marginLeft='8px';
+        tl.onclick = async (e) => {
+          e.preventDefault();
+          const rr = await fetch('/api/orders/timeline?oid=' + encodeURIComponent(it.order_id), { headers:{ Authorization: adm() }});
+          if (rr.ok) {
+            const evs = await rr.json();
+            const lines = (evs||[]).map(x => (formatCST(x.ts) + ' ' + x.name + (x.detail ? (' - '+x.detail) : '')));
+            alert(lines.join('\n') || '暂无时间线');
+          }
+        };
+        tr.children[6].appendChild(tl);
+        tb.appendChild(tr);
+      }
+    }
+    load();
+    function selectAllSt() {
+      const s = document.getElementById('st');
+      Array.from(s.options).forEach(o => o.selected = true);
+      load();
+    }
+    function clearSt() {
+      const s = document.getElementById('st');
+      Array.from(s.options).forEach(o => o.selected = false);
+      load();
+    }
+    function onlyOverdue() {
+      const s = document.getElementById('st');
+      Array.from(s.options).forEach(o => o.selected = (o.value === '逾期交付'));
+      load();
+    }
+    function downloadOrders() {
+      const header = ['订单号','用户','项目','金额','状态','创建时间'];
+      const sel = Array.from(document.querySelectorAll('#st option:checked')).map(o=>o.value);
+      const lines = [];
+      lines.push(['筛选状态', (sel.length? sel.join('|') : '全部')].join(','));
+      lines.push(header.join(','));
+      for (const it of lastOrders) {
+        const created = formatCST(it.created_at);
+        const row = [
+          it.order_no || '',
+          it.user_id || '',
+          String(it.project_id ?? ''),
+          String(it.amount ?? ''),
+          it.status || '',
+          created || ''
+        ].map(x => String(x).replace(/"/g,'""'));
+        lines.push(row.join(','));
+      }
+      const csv = '\uFEFF' + lines.join('\n');
+      const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' });
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = '订单列表.csv';
+      a.click();
+      URL.revokeObjectURL(a.href);
+    }
+    async function banUser(uid) {
+      if (!uid) return;
+      const r = await fetch('/api/admin/users/ban', { method:'POST', headers:{ 'Content-Type':'application/json', Authorization: adm() }, body: JSON.stringify({ user_id: uid })});
+      alert(r.ok ? '已禁止用户 ' + uid : '禁止失败');
+    }
+    async function unbanUser(uid) {
+      if (!uid) return;
+      const r = await fetch('/api/admin/users/unban', { method:'POST', headers:{ 'Content-Type':'application/json', Authorization: adm() }, body: JSON.stringify({ user_id: uid })});
+      alert(r.ok ? '已解除禁止 ' + uid : '解除失败');
+    }
+  </script>
+  <script src="/web/support.js"></script>
+  <script>addSupportEntry();</script>
+  </body>
+</html>

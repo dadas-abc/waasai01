@@ -1,0 +1,99 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8"/>
+  <title>哇噻APP</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <style>
+    body { font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif; margin: 24px; }
+    .box { border: 1px solid #ddd; border-radius: 8px; padding: 16px; margin-bottom: 16px; }
+    input, button, select { padding: 8px; margin: 6px 0; width: 100%; max-width: 420px; }
+    .ok { color: #0a0; } .err { color: #a00; }
+    .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 16px; }
+  </style>
+  <link rel="manifest" href="/web/manifest.json"/>
+  <meta name="theme-color" content="#1677ff"/>
+  <link rel="apple-touch-icon" href="/web/uploads/waasai-192.png"/>
+</head>
+<body>
+  <h1>哇噻APP</h1>
+  <div class="box">
+    <h2>注册</h2>
+    <input id="reg_pw" placeholder="密码（自设）" value="Abc12345"/>
+    <input id="reg_q1" placeholder="保密问题1" value="你的城市？"/>
+    <input id="reg_a1" placeholder="答案1" value="上海"/>
+    <input id="reg_q2" placeholder="保密问题2" value="最喜欢的电影？"/>
+    <input id="reg_a2" placeholder="答案2" value="Inception"/>
+    <button onclick="doRegister()">注册并自动生成ID</button>
+    <div id="reg_msg"></div>
+  </div>
+  <div class="box">
+    <h2>登录</h2>
+    <input id="login_id" placeholder="UUID 用户ID"/>
+    <input id="login_pw" placeholder="密码" value="Abc12345"/>
+    <button onclick="doLogin()">登录</button>
+    <div id="login_msg"></div>
+  </div>
+  <div class="box">
+    <h2>项目列表</h2>
+    <div id="list" class="grid"></div>
+    <div id="msg"></div>
+  </div>
+  <script>
+    async function doRegister() {
+      const t = document.getElementById('reg_msg');
+      t.textContent = '正在注册…';
+      const payload = {
+        password: document.getElementById('reg_pw').value,
+        sec_q1: document.getElementById('reg_q1').value,
+        sec_a1: document.getElementById('reg_a1').value,
+        sec_q2: document.getElementById('reg_q2').value,
+        sec_a2: document.getElementById('reg_a2').value
+      };
+      const r = await fetch('/api/auth/register', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
+      if (r.ok) {
+        const d = await r.json();
+        document.getElementById('login_id').value = d.id;
+        localStorage.setItem('token', d.token);
+        t.innerHTML = '<span class="ok">注册成功，ID：' + d.id + '（已登录）</span>';
+        await loadProjects();
+      } else {
+        t.innerHTML = '<span class="err">注册失败</span>';
+      }
+    }
+    async function doLogin() {
+      const t = document.getElementById('login_msg');
+      t.textContent = '正在登录…';
+      const payload = { id: document.getElementById('login_id').value, password: document.getElementById('login_pw').value };
+      const r = await fetch('/api/auth/login', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
+      if (r.ok) {
+        const d = await r.json(); localStorage.setItem('token', d.token);
+        t.innerHTML = '<span class="ok">登录成功，ID：' + d.id + '</span>';
+        await loadProjects();
+      } else {
+        t.innerHTML = '<span class="err">登录失败</span>';
+      }
+    }
+    async function loadProjects() {
+      const r = await fetch('/api/projects');
+      const list = document.getElementById('list'); list.innerHTML = '';
+      if (!r.ok) { list.textContent = '加载失败'; return; }
+      const arr = await r.json();
+      for (const it of arr) {
+        const card = document.createElement('div'); card.style.border='1px solid #eee'; card.style.borderRadius='8px'; card.style.padding='12px';
+        card.innerHTML = '<h3>' + it.name + '</h3><div>' + it.intro + '</div><div>价格：¥' + it.price + ' · 时效：' + it.sla_hours + '小时</div>';
+        const btn = document.createElement('button'); btn.textContent = '立即下单'; btn.onclick = () => location.href = '/web/order.html?id=' + encodeURIComponent(it.id);
+        card.appendChild(btn); list.appendChild(card);
+      }
+    }
+    loadProjects();
+  </script>
+  <script>
+    if ('serviceWorker' in navigator) {
+      navigator.serviceWorker.register('/web/sw.js').catch(()=>{});
+    }
+  </script>
+  <script src="/web/support.js"></script>
+  <script>addSupportEntry();</script>
+</body>
+</html>

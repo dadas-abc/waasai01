@@ -39,7 +39,7 @@
       <button onclick="clearSt()">清空选择</button>
       <button onclick="onlyOverdue()">仅显示逾期</button>
       <button onclick="load()">刷新列表</button>
-      <button onclick="downloadOrders()">下载明细CSV</button>
+      <button onclick="downloadOrderDetails()">下载订单明细CSV</button>
     </div>
     <table>
       <thead>
@@ -56,6 +56,11 @@
     document.getElementById('adm').value = adm();
     let lastOrders = [];
     let bannedSet = new Set();
+    async function fetchOrderDetail(id) {
+      const r = await fetch('/api/admin/orders/detail?oid=' + encodeURIComponent(id), { headers:{ Authorization: adm() }});
+      if (!r.ok) return null;
+      return await r.json();
+    }
     async function load() {
       try {
         const br = await fetch('/api/admin/users/banned', { headers:{ Authorization: adm() }});
@@ -129,6 +134,61 @@
           }
         };
         tr.children[6].appendChild(tl);
+        const dt = document.createElement('a'); dt.href='#'; dt.textContent='明细'; dt.style.marginLeft='8px';
+        dt.onclick = async (e) => {
+          e.preventDefault();
+          const d = await fetchOrderDetail(it.order_id);
+          if (!d) { alert('加载明细失败'); return; }
+          let ov = document.getElementById('detail_overlay');
+          if (!ov) {
+            ov = document.createElement('div'); ov.id='detail_overlay'; ov.style.position='fixed'; ov.style.left='0'; ov.style.top='0'; ov.style.right='0'; ov.style.bottom='0'; ov.style.background='rgba(0,0,0,0.5)'; ov.style.display='none'; ov.style.alignItems='center'; ov.style.justifyContent='center'; ov.style.zIndex='99999';
+            const box = document.createElement('div'); box.id='detail_box'; box.style.background='#fff'; box.style.padding='16px'; box.style.borderRadius='8px'; box.style.maxWidth='720px'; box.style.maxHeight='80vh'; box.style.overflow='auto'; box.style.boxShadow='0 8px 24px rgba(0,0,0,0.3)';
+            ov.appendChild(box);
+            ov.onclick = (e)=>{ if (e.target===ov) ov.style.display='none'; };
+            document.body.appendChild(ov);
+          }
+          const box = document.getElementById('detail_box');
+          const fields = d.fields || {};
+          const req = d.required_fields || [];
+          const opt = d.optional_fields || [];
+          const rows = [];
+          if (req.length===0 && opt.length===0) {
+            const ks = Object.keys(fields);
+            if (ks.length===0) rows.push('<tr><td colspan="3">无表单字段</td></tr>');
+            else for (const k of ks) rows.push('<tr><td></td><td>'+k+'</td><td>'+String(fields[k]??'')+'</td></tr>');
+          } else {
+            for (const k of req) rows.push('<tr><td>必填</td><td>'+k+'</td><td>'+String(fields[k]??'')+'</td></tr>');
+            for (const k of opt) rows.push('<tr><td>选填</td><td>'+k+'</td><td>'+String(fields[k]??'')+'</td></tr>');
+          }
+          const head = '<div style="font-weight:600; margin-bottom:8px;">订单号：'+(d.order_no||'')+' · 用户：'+(d.user_id||'')+' · 项目ID：'+(d.project_id??'')+'</div>';
+          const btns = '<div style="margin-bottom:8px;"><button id="detail_close_btn">关闭</button> <button id="detail_download_btn">下载该订单明细</button></div>';
+          const tbl = '<table style="width:100%; border-collapse:collapse;"><thead><tr><th style="border:1px solid #eee; padding:6px;">字段类型</th><th style="border:1px solid #eee; padding:6px;">字段名</th><th style="border:1px solid #eee; padding:6px;">字段值</th></tr></thead><tbody>'+rows.join('')+'</tbody></table>';
+          box.innerHTML = head + btns + tbl;
+          document.getElementById('detail_close_btn').onclick = ()=>{ ov.style.display='none'; };
+          document.getElementById('detail_download_btn').onclick = async ()=>{
+            const header = ['订单号','用户','项目ID','金额','状态','创建时间','字段类型','字段名','字段值'];
+            const lines = [header.join(',')];
+            const pushRow = (ftype, name, value) => {
+              const row = [
+                d.order_no||'', d.user_id||'', String(d.project_id??''), String(d.amount??''), d.status||'', d.created_at||'', ftype, name||'', String(value??'')
+              ].map(x => String(x).replace(/\"/g,'\"\"'));
+              lines.push(row.join(','));
+            };
+            if (req.length===0 && opt.length===0) {
+              const keys = Object.keys(fields);
+              if (keys.length===0) pushRow('', '', '');
+              else for (const k of keys) pushRow('', k, fields[k]);
+            } else {
+              for (const k of req) pushRow('必填', k, fields[k]);
+              for (const k of opt) pushRow('选填', k, fields[k]);
+            }
+            const csv = '\uFEFF' + lines.join('\n');
+            const blob = new Blob([csv], { type:'text/csv;charset=utf-8' });
+            const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = '订单明细_'+(d.order_no||'')+'.csv'; a.click(); URL.revokeObjectURL(a.href);
+          };
+          ov.style.display='flex';
+        };
+        tr.children[6].appendChild(dt);
         tb.appendChild(tr);
       }
     }
@@ -148,29 +208,41 @@
       Array.from(s.options).forEach(o => o.selected = (o.value === '逾期交付'));
       load();
     }
-    function downloadOrders() {
-      const header = ['订单号','用户','项目','金额','状态','创建时间'];
-      const sel = Array.from(document.querySelectorAll('#st option:checked')).map(o=>o.value);
-      const lines = [];
-      lines.push(['筛选状态', (sel.length? sel.join('|') : '全部')].join(','));
-      lines.push(header.join(','));
+    // 下载列表CSV功能与订单明细重复，已移除
+    async function downloadOrderDetails() {
+      const LABELS = { name:'名字', phone:'电话', id_card:'身份证号码', wechat_id:'微信号', card_no:'银行卡号', bank_name:'开户行', image_url:'图片', qq_id:'QQ号', douyin_id:'抖音号', weibo_id:'微博号', xhs_id:'小红书号', passport_no:'护照号', corp_name:'企业名称', corp_credit_code:'企业信用代码' };
+      const STANDARD_KEYS = ['name','phone','image_url','id_card','wechat_id','card_no','bank_name','qq_id','douyin_id','weibo_id','xhs_id','passport_no','corp_name','corp_credit_code'];
+      const details = [];
+      const fieldSet = new Set();
       for (const it of lastOrders) {
-        const created = formatCST(it.created_at);
-        const row = [
-          it.order_no || '',
-          it.user_id || '',
-          String(it.project_id ?? ''),
-          String(it.amount ?? ''),
-          it.status || '',
-          created || ''
-        ].map(x => String(x).replace(/"/g,'""'));
+        const d = await fetchOrderDetail(it.order_id);
+        if (!d) continue;
+        details.push(d);
+        const req = d.required_fields || [];
+        const opt = d.optional_fields || [];
+        const keys = [...new Set([...(req||[]), ...(opt||[]), ...Object.keys(d.fields||{})])];
+        for (const k of keys) fieldSet.add(k);
+      }
+      const fieldKeys = Array.from(new Set([...STANDARD_KEYS, ...fieldSet]));
+      const header = ['订单号','用户','项目ID','金额','状态','创建时间', ...fieldKeys.map(k => (LABELS[k] || k))];
+      const lines = [header.join(',')];
+      for (const d of details) {
+        const base = [
+          d.order_no || '',
+          d.user_id || '',
+          String(d.project_id ?? ''),
+          String(d.amount ?? ''),
+          d.status || '',
+          d.created_at || '',
+        ];
+        const row = base.concat(fieldKeys.map(k => String((d.fields||{})[k] ?? '').replace(/"/g,'""')));
         lines.push(row.join(','));
       }
       const csv = '\uFEFF' + lines.join('\n');
       const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' });
       const a = document.createElement('a');
       a.href = URL.createObjectURL(blob);
-      a.download = '订单列表.csv';
+      a.download = '订单明细_含表单字段.csv';
       a.click();
       URL.revokeObjectURL(a.href);
     }

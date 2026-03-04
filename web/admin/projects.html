@@ -55,9 +55,9 @@
     function adm() { return localStorage.getItem('adm_token') || 'admin-demo-token'; }
     function save() { localStorage.setItem('adm_token', document.getElementById('adm').value.trim()); document.getElementById('msg').textContent='已保存'; }
     document.getElementById('adm').value = adm();
-    const FIELD_MAP_EN2ZH = { name:'姓名', phone:'手机号', image_url:'图片', wechat_id:'微信号', id_card:'身份证号码', douyin_id:'抖音号', weibo_id:'微博号', qq_id:'QQ号', xhs_id:'小红书号', passport_no:'护照号', card_no:'银行卡号', corp_name:'企业名称', corp_credit_code:'企业信用代码' };
+    const FIELD_MAP_EN2ZH = { name:'姓名', phone:'手机号', image_url:'图片', wechat_id:'微信号', id_card:'身份证号码', douyin_id:'抖音号', weibo_id:'微博号', qq_id:'QQ号', xhs_id:'小红书号', passport_no:'护照号', card_no:'银行卡号', bank_name:'开户行', corp_name:'企业名称', corp_credit_code:'企业信用代码' };
     const FIELD_MAP_ZH2EN = Object.fromEntries(Object.entries(FIELD_MAP_EN2ZH).map(([k,v])=>[v,k]));
-    const FIELD_ALIASES_ZH2EN = { '图片地址':'image_url', '图片':'image_url', '姓名':'name', '手机号':'phone', '微信号':'wechat_id', '身份证':'id_card', '身份证号码':'id_card', '抖音号':'douyin_id', '微博号':'weibo_id', 'QQ号':'qq_id', '小红书号':'xhs_id', '护照号':'passport_no', '银行卡号':'card_no', '企业名称':'corp_name', '企业信用代码':'corp_credit_code' };
+    const FIELD_ALIASES_ZH2EN = { '图片地址':'image_url', '图片':'image_url', '姓名':'name', '手机号':'phone', '微信号':'wechat_id', '身份证':'id_card', '身份证号码':'id_card', '抖音号':'douyin_id', '微博号':'weibo_id', 'QQ号':'qq_id', '小红书号':'xhs_id', '护照号':'passport_no', '银行卡号':'card_no', '开户行':'bank_name', '企业名称':'corp_name', '企业信用代码':'corp_credit_code' };
     const STATUS_EN2ZH = { online:'上线', offline:'下线' };
     const STATUS_ZH2EN = { 上线:'online', 下线:'offline' };
     function toZhFields(arr) { return (arr||[]).map(x=>FIELD_MAP_EN2ZH[x]||x); }
@@ -88,6 +88,7 @@
       '小红书号':'3-24位字母数字或下划线',
       '护照号':'字母开头，后续7-17位字母数字',
       '银行卡号':'12-19位数字',
+      '开户行':'银行或分行名称（2-80位，中英文/数字/括号等）',
       '企业名称':'公司全称（2-80位，中英文/数字/括号等）',
       '企业信用代码':'18位统一社会信用代码（大写字母或数字）'
     };

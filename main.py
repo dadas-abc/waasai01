@@ -14,8 +14,50 @@ from sqlalchemy.orm import declarative_base, sessionmaker
 ADMIN_TOKEN = os.getenv("ADMIN_TOKEN", "admin-demo-token")
 DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///./simple_app.db")
 COOKIE_SECURE = os.getenv("COOKIE_SECURE", "false").lower() == "true"
-AES_KEY_ENV = os.getenv("AES_KEY")
-AES_KEY = base64.urlsafe_b64decode(AES_KEY_ENV.encode()) if AES_KEY_ENV else os.urandom(32)
+ENV_PATH = os.path.join(os.path.dirname(__file__), ".env")
+def _read_env_value(name: str) -> Optional[str]:
+    try:
+        with open(ENV_PATH, "r", encoding="utf-8") as f:
+            for line in f:
+                line = line.strip()
+                if not line or line.startswith("#"): continue
+                if line.split("=", 1)[0] == name:
+                    return line.split("=", 1)[1]
+    except Exception:
+        return None
+    return None
+def _write_env_value(name: str, value: str):
+    try:
+        lines = []
+        found = False
+        try:
+            with open(ENV_PATH, "r", encoding="utf-8") as f:
+                lines = f.readlines()
+        except Exception:
+            lines = []
+        out = []
+        for ln in lines:
+            k = ln.strip().split("=", 1)[0] if "=" in ln else ln.strip()
+            if k == name:
+                out.append(name + "=" + value + "\n")
+                found = True
+            else:
+                out.append(ln)
+        if not found:
+            out.append(name + "=" + value + "\n")
+        with open(ENV_PATH, "w", encoding="utf-8") as f:
+            f.writelines(out)
+    except Exception:
+        pass
+AES_KEY_ENV = os.getenv("AES_KEY") or _read_env_value("AES_KEY")
+if AES_KEY_ENV:
+    AES_KEY = base64.urlsafe_b64decode(AES_KEY_ENV.encode())
+else:
+    AES_KEY_BYTES = os.urandom(32)
+    AES_KEY_ENV = base64.urlsafe_b64encode(AES_KEY_BYTES).decode()
+    os.environ["AES_KEY"] = AES_KEY_ENV
+    _write_env_value("AES_KEY", AES_KEY_ENV)
+    AES_KEY = AES_KEY_BYTES
 
 # ------------------- db setup -------------------
 engine = create_engine(DATABASE_URL, connect_args={"check_same_thread": False} if DATABASE_URL.startswith("sqlite") else {})
@@ -60,6 +102,7 @@ class Order(Base):
     internal_note_opt = Column(Text, nullable=True)
     codepool_id_opt = Column(Integer, nullable=True)
     pay_channel_opt = Column(String(32), nullable=True)  # wechat/alipay
+    fields_json = Column(Text, nullable=True)
 
 class Codepool(Base):
     __tablename__ = "codepool"
@@ -151,6 +194,8 @@ def create_tables():
             cur.execute("ALTER TABLE orders ADD COLUMN codepool_id_opt INTEGER")
         if "pay_channel_opt" not in cols:
             cur.execute("ALTER TABLE orders ADD COLUMN pay_channel_opt VARCHAR(32)")
+        if "fields_json" not in cols:
+            cur.execute("ALTER TABLE orders ADD COLUMN fields_json TEXT")
         cur.execute("PRAGMA table_info(codepool)")
         ccols = [r[1] for r in cur.fetchall()]
         if "channel" not in ccols:
@@ -227,6 +272,7 @@ def validate_field(fid: str, v: str) -> bool:
     if fid == "weibo_id": return re.fullmatch(r"^[a-zA-Z0-9_]{2,30}$", v or "") is not None
     if fid == "corp_credit_code": return re.fullmatch(r"^[0-9A-Z]{18}$", (v or "").upper()) is not None
     if fid == "corp_name": return re.fullmatch(r"^[A-Za-z0-9\u4e00-\u9fa5（）()&·\-\.\s]{2,80}$", v or "") is not None
+    if fid == "bank_name": return re.fullmatch(r"^[A-Za-z0-9\u4e00-\u9fa5（）()&·\-\.\s]{2,80}$", v or "") is not None
     if fid == "name": return re.fullmatch(r"^[A-Za-z\u4e00-\u9fa5][A-Za-z\u4e00-\u9fa5\s]{1,49}$", v or "") is not None
     return True
 
@@ -801,6 +847,10 @@ def create_order(payload: OrderCreatePayload, authorization: str = Header(defaul
         ono = "ORD" + datetime.now(timezone.utc).strftime("%Y%m%d") + uuid.uuid4().hex[:6].upper()
         o = Order(order_no=ono, user_id=uid, project_id=p.id, amount=p.base_price, status="待支付",
                   pay_deadline=datetime.now(timezone.utc))
+        try:
+            o.fields_json = json.dumps(fields, ensure_ascii=False)
+        except Exception:
+            o.fields_json = "{}"
         db.add(o); db.commit(); db.refresh(o)
         return {"order_id": o.id, "order_no": o.order_no}
     finally:
@@ -948,6 +998,46 @@ def order_timeline(oid: int, authorization: str = Header(default="")):
     try:
         evs = db.query(OrderEvent).filter(OrderEvent.order_id == oid).order_by(OrderEvent.id.asc()).all()
         return [{"name": e.name, "detail": e.detail, "ts": to_cst_iso(e.created_at)} for e in evs]
+    finally:
+        db.close()
+@app.get("/api/admin/orders/detail")
+def admin_order_detail(oid: int, authorization: str = Header(default="")):
+    check_admin(authorization)
+    db = SessionLocal()
+    try:
+        import json
+        o = db.query(Order).filter(Order.id == oid).first()
+        if not o:
+            raise HTTPException(status_code=404, detail="not found")
+        p = db.query(Project).filter(Project.id == o.project_id).first()
+        req = []
+        opt = []
+        if p:
+            try:
+                req = json.loads(p.required_fields or "[]")
+            except Exception:
+                req = []
+            try:
+                opt = json.loads(p.optional_fields or "[]")
+            except Exception:
+                opt = []
+        fields = {}
+        try:
+            fields = json.loads(o.fields_json or "{}")
+        except Exception:
+            fields = {}
+        return {
+            "order_id": o.id,
+            "order_no": o.order_no,
+            "user_id": o.user_id,
+            "project_id": o.project_id,
+            "amount": o.amount,
+            "status": o.status,
+            "created_at": to_cst_iso(o.created_at),
+            "required_fields": req,
+            "optional_fields": opt,
+            "fields": fields,
+        }
     finally:
         db.close()
 

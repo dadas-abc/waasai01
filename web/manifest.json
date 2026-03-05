@@ -1,13 +1,13 @@
 {
-  "name": "哇噻APP",
-  "short_name": "哇噻APP",
+  "name": "查档帮",
+  "short_name": "查档帮",
   "start_url": "/web/index.html",
   "scope": "/web/",
   "display": "standalone",
   "background_color": "#ffffff",
   "theme_color": "#1677ff",
   "icons": [
-    { "src": "/web/uploads/waasai-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any maskable" },
-    { "src": "/web/uploads/waasai-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any maskable" }
+    { "src": "/web/uploads/chadang-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any maskable" },
+    { "src": "/web/uploads/chadang-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any maskable" }
   ]
 }

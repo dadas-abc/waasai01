@@ -1,4 +1,4 @@
-const CACHE_NAME = 'waasai-app-v1';
+const CACHE_NAME = 'waasai-app-v2';
 const CORE_ASSETS = [
   '/web/index.html',
   '/web/manifest.json',
